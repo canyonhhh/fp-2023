@@ -27,6 +27,7 @@ findTableByName _ _ = error "findTableByName not implemented"
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
 parseSelectAllStatement _ = error "parseSelectAllStatement not implemented"
 
+-- this task is taken by Marijonas
 -- 3) implement the function which validates tables: checks if
 -- columns match value types, if rows sizes match columns,..
 validateDataFrame :: DataFrame -> Either ErrorMessage ()
