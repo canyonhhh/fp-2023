@@ -7,7 +7,7 @@ module Lib1
     renderDataFrameAsTable,
   )
 where
-
+import Data.Char (toLower)
 import DataFrame (DataFrame)
 import InMemoryTables (TableName)
 
@@ -19,8 +19,13 @@ type Database = [(TableName, DataFrame)]
 
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
+-- Convert both names to lowercase and then compare
 findTableByName :: Database -> String -> Maybe DataFrame
-findTableByName _ _ = error "findTableByName not implemented"
+findTableByName [] _ = Nothing  -- If the database is empty, return Nothing
+findTableByName ((tableName, dataFrame) : rest) name
+  | map toLower tableName == map toLower name = Just dataFrame  -- Case-insensitive comparison
+  | otherwise = findTableByName rest name  -- Otherwise, search in the rest of the database
+
 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
