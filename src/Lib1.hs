@@ -20,7 +20,10 @@ type Database = [(TableName, DataFrame)]
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
 findTableByName :: Database -> String -> Maybe DataFrame
-findTableByName _ _ = error "findTableByName not implemented"
+findTableByName [] _ = Nothing -- If the database is empty, return Nothing
+findTableByName ((tableName, dataFrame) : rest) name
+  | tableName == name = Just dataFrame -- If the table name matches, return Just dataFrame
+  | otherwise = findTableByName rest name -- Otherwise, search in the rest of the database
 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
