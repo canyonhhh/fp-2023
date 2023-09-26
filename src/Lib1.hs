@@ -8,7 +8,7 @@ module Lib1
   )
 where
 import Data.Char (toLower)
-import DataFrame (DataFrame)
+import DataFrame
 import InMemoryTables (TableName)
 
 type ErrorMessage = String
@@ -42,4 +42,20 @@ validateDataFrame _ = error "validateDataFrame ot implemented"
 -- answer for this task!), it should respect terminal
 -- width (in chars, provided as the first argument)
 renderDataFrameAsTable :: Integer -> DataFrame -> String
-renderDataFrameAsTable _ _ = error "renderDataFrameAsTable not implemented"
+renderDataFrameAsTable width (DataFrame cols rows) =
+    let colWidth = width `div` fromIntegral (length cols)
+    in unwords ["|" ++ cname ++ replicate (fromInteger colWidth - length cname - 2) ' ' | Column cname _ <- cols] ++ "\n" ++
+       take (fromInteger width) (cycle ("|" ++ replicate (fromInteger colWidth - 1) '-'))
+       ++ "\n" ++
+       unlines [unwords ["|" ++ renderValue colWidth v | v <- row] | row <- rows]
+
+renderValue :: Integer -> Value -> String
+renderValue width (IntegerValue v) = renderValue' width (show v)
+renderValue width (StringValue v) = renderValue' width v
+renderValue width (BoolValue v) = renderValue' width (show v)
+renderValue width NullValue = renderValue' width "NULL"
+
+renderValue' :: Integer -> String -> String
+renderValue' width v
+    | length v > fromInteger width = take (fromInteger width - 5) v ++ "..."
+    | otherwise = v ++ replicate (fromInteger width - length v - 2) ' '
