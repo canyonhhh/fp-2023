@@ -36,42 +36,33 @@ parseSelectAllStatement _ = error "parseSelectAllStatement not implemented"
 validateDataFrame :: DataFrame -> Either ErrorMessage ()
 validateDataFrame (DataFrame columns rows) =
   let
-    -- Helper function to check if a Value matches the specified ColumnType
-    checkValueType :: Value -> ColumnType -> Bool
+    checkValueType :: Value -> ColumnType -> Bool   -- Helper function to check if a Value matches the specified ColumnType
     checkValueType (IntegerValue _) IntegerType = True
     checkValueType (StringValue _) StringType = True
     checkValueType (BoolValue _) BoolType = True
     checkValueType NullValue _ = True
     checkValueType _ _ = False
 
-    -- Check if all values in a column have the correct type
-    validateColumn :: Column -> [Value] -> Bool
+    validateColumn :: Column -> [Value] -> Bool   -- Check if all values in a column have the correct type
     validateColumn (Column _ colType) values =
       all (\value -> checkValueType value colType) values
 
-    -- Check if all rows have the correct number of columns
-    validateRowSize :: [Value] -> Bool
+    validateRowSize :: [Value] -> Bool    -- Check if all rows have the correct number of columns
     validateRowSize values = length values == length columns
-
-    -- Check each column
-    columnChecks = map (\(Column name colType, values) -> (name, validateColumn (Column name colType) values)) (zip columns (transpose rows)) -- This line: map takes a function and a list as the arguments
-    -- (zip columns (transpose rows)) is the list, zip takes two lists and zips them one with other into tuples, and transpose rows basically takes every rows equiv element essentially just switching them to columns without the data type and name block
-    -- so then zip just combines the column name and type
-    -- Check each row
-    rowChecks = map (\row -> validateRowSize row) rows
-
-    -- Combine all checks
-    allChecks = all snd columnChecks && all (==True) rowChecks
+   
+    columnChecks = map (\(Column name colType, values) -> (name, validateColumn (Column name colType) values)) (zip columns (transpose rows))   -- Check columns (headers)
+    
+    rowChecks = map (\row -> validateRowSize row) rows    -- Check each row
+   
+    allChecks = all snd columnChecks && all (==True) rowChecks    -- Combine all checks
 
     generateError = 
-      if all (==True) rowChecks then  -- if the generateError function was called it means one of the tests failed, if this is true it means the other test failed
+      if all (==True) rowChecks then    -- If the generateError function was called it means one of the tests failed, if this is true it means the other test failed
           "Error was the column type missmatch"
-      else if all snd columnChecks then -- same concept here
+      else if all snd columnChecks then   -- Same concept here
           "Error was the row size missmatch"
-      else  -- Both failed
+      else    -- Both failed
           "Error was the row size missmatch and the column type missmatch"
-    
-
     
   in
     if allChecks then
