@@ -43,19 +43,34 @@ validateDataFrame _ = error "validateDataFrame ot implemented"
 -- width (in chars, provided as the first argument)
 renderDataFrameAsTable :: Integer -> DataFrame -> String
 renderDataFrameAsTable width (DataFrame cols rows) =
-    let colWidth = width `div` fromIntegral (length cols)
-    in unwords ["|" ++ cname ++ replicate (fromInteger colWidth - length cname - 2) ' ' | Column cname _ <- cols] ++ "\n" ++
-       take (fromInteger width) (cycle ("|" ++ replicate (fromInteger colWidth - 1) '-'))
-       ++ "\n" ++
-       unlines [unwords ["|" ++ renderValue colWidth v | v <- row] | row <- rows]
+    let adjustedWidth = width - fromIntegral (length cols + 2)
+        colWidths = calculateColumnWidths adjustedWidth cols rows
+        header = unwords ["|" ++ cname ++ replicate (w - length cname) ' ' | (Column cname _, w) <- zip cols colWidths] ++ "|"
+        separator = unwords ["|" ++ replicate w '-' | w <- colWidths] ++ "|"
+    in header ++ "\n" ++ separator ++ "\n" ++
+       unlines [unwords ["|" ++ renderValue w v | (v, w) <- zip row colWidths] ++ "|" | row <- rows]
 
-renderValue :: Integer -> Value -> String
+calculateColumnWidths :: Integer -> [Column] -> [Row] -> [Int]
+calculateColumnWidths totalWidth cols rows =
+    let initialWidths = [max (length cname) (maximum (map (valueLength . flip (!!) idx) rows)) | (Column cname _, idx) <- zip cols [0..]]
+        adjustWidths ws
+            | sum ws <= fromInteger totalWidth = ws
+            | otherwise = adjustWidths (map (\w -> if w > 2 then w - 1 else w) ws)
+    in adjustWidths initialWidths
+
+valueLength :: Value -> Int
+valueLength (IntegerValue v) = length (show v)
+valueLength (StringValue v) = length v
+valueLength (BoolValue v) = length (show v)
+valueLength NullValue = 4 -- "NULL"
+
+renderValue :: Int -> Value -> String
 renderValue width (IntegerValue v) = renderValue' width (show v)
 renderValue width (StringValue v) = renderValue' width v
 renderValue width (BoolValue v) = renderValue' width (show v)
 renderValue width NullValue = renderValue' width "NULL"
 
-renderValue' :: Integer -> String -> String
+renderValue' :: Int -> String -> String
 renderValue' width v
-    | length v > fromInteger width = take (fromInteger width - 5) v ++ "..."
-    | otherwise = v ++ replicate (fromInteger width - length v - 2) ' '
+    | length v > width = take (width - 3) v ++ "..."
+    | otherwise = v ++ replicate (width - length v) ' '
