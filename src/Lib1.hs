@@ -8,6 +8,7 @@ module Lib1
   )
 where
 
+import Data.Char (toLower)
 import DataFrame (DataFrame)
 import InMemoryTables (TableName)
 
