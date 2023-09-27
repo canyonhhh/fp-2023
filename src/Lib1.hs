@@ -9,6 +9,7 @@ module Lib1
 where
 
 import Data.Char (toLower)
+import DataFrame (DataFrame)
 import DataFrame
 import InMemoryTables (TableName)
 import Data.List (transpose)
@@ -33,8 +34,16 @@ findTableByName ((tableName, dataFrame) : rest) name
 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
+removeSemicolons :: String -> String
+removeSemicolons = filter (/= ';')
+
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
-parseSelectAllStatement _ = error "parseSelectAllStatement not implemented"
+parseSelectAllStatement sql = case (map toLower sql) of
+    ('s':'e':'l':'e':'c':'t':' ':'*':' ':'f':'r':'o':'m':' ':rest) -> 
+        case words rest of
+            (tableName:_) -> Right (removeSemicolons tableName)
+            _ -> Left "Error. Missing table name"
+    _ -> Left "Invalid SQL statement: Missing 'SELECT * FROM' statement"
 
 -- this task is taken by Marijonas
 -- 3) implement the function which validates tables: checks if
