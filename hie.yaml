@@ -1,0 +1,19 @@
+cradle:
+  stack:
+    - path: "./src"
+      component: "fp2023:lib"
+
+    - path: "./app1/Main.hs"
+      component: "fp2023:exe:fp2023-select-all"
+
+    - path: "./app1/Paths_fp2023.hs"
+      component: "fp2023:exe:fp2023-select-all"
+
+    - path: "./app2/Main.hs"
+      component: "fp2023:exe:fp2023-select-more"
+
+    - path: "./app2/Paths_fp2023.hs"
+      component: "fp2023:exe:fp2023-select-more"
+
+    - path: "./test"
+      component: "fp2023:test:fp2023-test"
