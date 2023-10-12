@@ -11,7 +11,8 @@ module Lib2
 where
 
 import DataFrame
-import InMemoryTables (TableName)
+import Lib1
+import InMemoryTables (TableName, database)
 import Data.Char (toUpper, isLetter)
 import Data.List (isPrefixOf, isSuffixOf)
 
@@ -56,7 +57,7 @@ data ParsedStatement
     = ShowTables
     | ShowTable TableName
     | Select { columns :: [(Aggregate, String)]
-             , tableName :: Maybe TableName
+             , tableName :: TableName
              , whereClause :: Maybe Condition}
     deriving (Show, Eq)
 
@@ -78,9 +79,9 @@ mergeSubstrings (a:b:rest) = if a `isPrefixOf` b then mergeSubstrings (b:rest) e
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement z =
    let s = unwords $ words z
-   in if map toUpper s == "SHOW TABLES" then Right ShowTables 
-      else if map toUpper (take 10 s) == "SHOW TABLE" then Right $ ShowTable (drop 11 s)
-      else if map toUpper (take 6 s) == "SELECT" then parseSelect s
+   in if s ==* "SHOW TABLES" then Right ShowTables 
+      else if take 10 s ==* "SHOW TABLE" then Right $ ShowTable (drop 11 s)
+      else if take 6 s ==* "SELECT" then parseSelect s
       else Left "Invalid statement"
 
 parseSelect :: String -> Either ErrorMessage ParsedStatement
@@ -92,7 +93,7 @@ parseSelect s = Right $
 -- Parse from SUM/MAX/None(column) to [(Aggregate, column)]
 parseColumns :: String -> [(Aggregate, String)]
 parseColumns s = 
-   let columnString = takeWhile (\x -> map toUpper x /= "FROM") . words $ s
+   let columnString = takeWhile (\x -> not (x ==* "FROM")) . words $ s
        columns = if length columnString == 1 
                  then error "Invalid statement"
                  else filter (not . null . snd) $ map (parseColumn . filter (/=',')) . tail $ columnString
@@ -109,29 +110,43 @@ parseColumn s =
         extractColumnName :: String -> String
         extractColumnName = filter isLetter . init . drop 4
 
-parseFromClause :: String -> Maybe TableName
+parseFromClause :: String -> TableName
 parseFromClause s = 
-   let f = dropWhile (\x -> map toUpper x /= "FROM") . words $ s
-   in if length f == 1 then Nothing
-      else Just . head . tail $ f
+   let f = dropWhile (\x -> not (x ==* "FROM")) . words $ s
+   in if length f == 1 then error "Invalid statement"
+      else head . tail $ f
 
 parseWhereClause :: String -> Maybe Condition
 parseWhereClause s = 
-   let w = dropWhile (\x -> map toUpper x /= "WHERE") . words $ s
+   let w = dropWhile (\x -> not (x ==* "WHERE")) . words $ s
    in if null w then Nothing  -- Parse "cname IS TRUE/FALSE" into list of tuples [(cname, True/False), ...]
       else Just . parseCondition . map ((\ [x, y] -> (x, y)) . words . unwords . split (==*"IS")) . split(==*"AND") . unwords . tail $ w
 
 -- Recursively parse a list of tuples [(cname, True/False), ...] into a Condition
 parseCondition :: [(String, String)] -> Condition
 parseCondition [] = error "Empty condition"
-parseCondition [(cname, bool)] = BoolCondition cname (map toUpper (head . words $ bool) == "TRUE")
-parseCondition ((cname, bool):xs) = And (BoolCondition cname (map toUpper (head . words $ bool) == "TRUE")) (parseCondition xs)
+parseCondition [(cname, bool)] = BoolCondition cname ((head . words $ bool) ==* "TRUE")
+parseCondition ((cname, bool):xs) = And (BoolCondition cname ((head . words $ bool) ==* "TRUE")) (parseCondition xs)
 
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
-executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement _ = Left "Not implemented: executeStatement"
-
 -- First the where clause is applied to the specified columns
 -- Then the aggregate functions are applied to the columns specified in the select statement
 -- The columns are then filtered to only include the columns specified in the select statement
+executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
+executeStatement ShowTables = Left "Not implemented"
+executeStatement (ShowTable _) = Left "Not implemented"
+executeStatement (Select columns tableName whereClause) = 
+    filterColumns columns . executeAggregates columns . executeWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
+
+executeWhereClauses :: Maybe Condition -> Maybe DataFrame -> Either ErrorMessage DataFrame
+executeWhereClauses _ Nothing = Left "Table not found"
+executeWhereClauses _ _ = Left "Not implemented"
+
+executeAggregates :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
+executeAggregates _ (Left m) = Left m
+executeAggregates _ _ = Left "Not implemented"
+
+filterColumns :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
+filterColumns _ (Left m) = Left m
+filterColumns _ _ = Left "Not implemented"

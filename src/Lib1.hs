@@ -25,7 +25,7 @@ type Database = [(TableName, DataFrame)]
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
 -- Convert both names to lowercase and then compare
-findTableByName :: Database -> String -> Maybe DataFrame
+findTableByName :: Database -> TableName -> Maybe DataFrame
 findTableByName [] _ = Nothing  -- If the database is empty, return Nothing
 findTableByName ((tableName, dataFrame) : rest) name
   | map toLower tableName == map toLower name = Just dataFrame  -- Case-insensitive comparison
