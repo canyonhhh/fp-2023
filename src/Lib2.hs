@@ -1,5 +1,21 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
+module Lib2
+  ( parseStatement,
+    executeStatement,
+    ParsedStatement (..),
+    Condition (..),
+    Aggregate (..),
+    Database,
+  )
+where
+
+import DataFrame
+import InMemoryTables (TableName)
+import Data.Char (toUpper, isLetter)
+import Data.List (isPrefixOf, isSuffixOf)
+
+
 -- SHOW TABLES
 -- SHOW TABLE name
 -- Parse select statemets with:
@@ -29,12 +45,6 @@
   --)
 --where
 
-import DataFrame
-import InMemoryTables (TableName)
-import Data.Char (toUpper, isLetter)
-import Data.List (isPrefixOf, isSuffixOf)
-import Data.List.Split (splitOn)
-
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
@@ -57,6 +67,19 @@ data ParsedStatement
              , whereClause :: Maybe Condition}
     deriving (Show, Eq)
 
+-- Helpers
+split :: (String -> Bool) -> String -> [String]
+split f = map (unwords . words) . mergeSubstrings . scanl (\acc x -> if not (f x) then acc++" "++x else "") "" . words
+
+mergeSubstrings :: [String] -> [String]
+mergeSubstrings [] = []
+mergeSubstrings [a] = [a]
+mergeSubstrings (a:b:rest) = if a `isPrefixOf` b then mergeSubstrings (b:rest) else a:mergeSubstrings (b:rest)
+
+-- Case insensitive string comparison
+(==*) :: String -> String -> Bool
+(==*) a b = map toUpper a == map toUpper b
+
 -- Parses user input into an entity representing a parsed
 -- statement
 parseStatement :: String -> Either ErrorMessage ParsedStatement
@@ -76,9 +99,11 @@ parseSelect s = Right $
 -- Parse from SUM/MAX/None(column) to [(Aggregate, column)]
 parseColumns :: String -> [(Aggregate, String)]
 parseColumns s = 
-   let c = takeWhile (\x -> map toUpper x /= "FROM") . words $ s
-   in if length c == 1 then error "Invalid statement"
-      else map parseColumn . splitOn "," . unwords . tail $ c
+   let columnString = takeWhile (\x -> map toUpper x /= "FROM") . words $ s
+       columns = if length columnString == 1 
+                 then error "Invalid statement"
+                 else filter (not . null . snd) $ map (parseColumn . filter (/=',')) . tail $ columnString
+   in columns
 
 -- Parse SUM/MAX/None(column) to (Aggregate, column)
 parseColumn :: String -> (Aggregate, String)
@@ -91,7 +116,6 @@ parseColumn s =
         extractColumnName :: String -> String
         extractColumnName = filter isLetter . init . drop 4
 
-
 parseFromClause :: String -> Maybe TableName
 parseFromClause s = 
    let f = dropWhile (\x -> map toUpper x /= "FROM") . words $ s
@@ -102,7 +126,7 @@ parseWhereClause :: String -> Maybe Condition
 parseWhereClause s = 
    let w = dropWhile (\x -> map toUpper x /= "WHERE") . words $ s
    in if null w then Nothing  -- Parse "cname IS TRUE/FALSE" into list of tuples [(cname, True/False), ...]
-      else Just . parseCondition . map ((\ [x, y] -> (x, y)) . words . unwords . splitOn "IS") . splitOn "AND" . unwords . tail $ w
+      else Just . parseCondition . map ((\ [x, y] -> (x, y)) . words . unwords . split (==*"IS")) . split(==*"AND") . unwords . tail $ w
 
 -- Recursively parse a list of tuples [(cname, True/False), ...] into a Condition
 parseCondition :: [(String, String)] -> Condition
