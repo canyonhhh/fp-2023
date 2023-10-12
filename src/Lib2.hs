@@ -38,13 +38,6 @@ import Data.List (isPrefixOf, isSuffixOf)
 -- where bool is true/false
    -- Filter rows based on whether the specified column's value is TRUE or FALSE.
 
---module Lib2
-  --( parseStatement,
-    --executeStatement,
-    --ParsedStatement
-  --)
---where
-
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
@@ -134,8 +127,11 @@ parseCondition [] = error "Empty condition"
 parseCondition [(cname, bool)] = BoolCondition cname (map toUpper (head . words $ bool) == "TRUE")
 parseCondition ((cname, bool):xs) = And (BoolCondition cname (map toUpper (head . words $ bool) == "TRUE")) (parseCondition xs)
 
-
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement _ = Left "Not implemented: executeStatement"
+
+-- First the where clause is applied to the specified columns
+-- Then the aggregate functions are applied to the columns specified in the select statement
+-- The columns are then filtered to only include the columns specified in the select statement
