@@ -16,29 +16,6 @@ import InMemoryTables (TableName, database)
 import Data.Char (toUpper, isLetter)
 import Data.List (isPrefixOf, isSuffixOf)
 
-
--- SHOW TABLES
--- SHOW TABLE name
--- Parse select statemets with:
--- column list:
-   -- Parse and recognize column names in a given query.
-   -- Return the specified columns from the table in the result.
-   -- Ensure provided column names exist in the table.
--- max
-   -- Parse the MAX aggregate function.
-   -- Return the largest value in the specified column.
-   -- Ensure that only integers, bools, and strings are processed.
--- sum
-   -- Parse the SUM aggregate function.
-   -- Return the sum of all values in the specified column.
-   -- Ensure that integers are processed.
--- where AND
-   -- Parse multiple conditions combined using AND.
-   -- Ensure all conditions combined with AND are met for a row are included in the result.
-   -- Aggregate functions can be applied to the results ( MIN, MAX, etc.)
--- where bool is true/false
-   -- Filter rows based on whether the specified column's value is TRUE or FALSE.
-
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
@@ -121,7 +98,7 @@ parseWhereClause :: String -> Maybe Condition
 parseWhereClause s = 
    let w = dropWhile (\x -> not (x ==* "WHERE")) . words $ s
    in if null w then Nothing  -- Parse "cname IS TRUE/FALSE" into list of tuples [(cname, True/False), ...]
-      else Just . parseCondition . map ((\ [x, y] -> (x, y)) . words . unwords . split (==*"IS")) . split(==*"AND") . unwords . tail $ w
+      else Just . parseCondition . map ((\[x, y] -> (x, y)) . words . unwords . split (==*"IS")) . split(==*"AND") . unwords . tail $ w
 
 -- Recursively parse a list of tuples [(cname, True/False), ...] into a Condition
 parseCondition :: [(String, String)] -> Condition
