@@ -78,7 +78,8 @@ mergeSubstrings (a:b:rest) = if a `isPrefixOf` b then mergeSubstrings (b:rest) e
 -- statement
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement z =
-   let s = unwords $ words z
+   if last z /= ';' then Left "Invalid statement" else
+   let s = init . unwords $ words z
    in if s ==* "SHOW TABLES" then Right ShowTables 
       else if take 10 s ==* "SHOW TABLE" then Right $ ShowTable (drop 11 s)
       else if take 6 s ==* "SELECT" then parseSelect s
@@ -134,10 +135,18 @@ parseCondition ((cname, bool):xs) = And (BoolCondition cname ((head . words $ bo
 -- Then the aggregate functions are applied to the columns specified in the select statement
 -- The columns are then filtered to only include the columns specified in the select statement
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement ShowTables = Left "Not implemented"
-executeStatement (ShowTable _) = Left "Not implemented"
+executeStatement ShowTables = showTables
+executeStatement (ShowTable name) = showTable name
 executeStatement (Select columns tableName whereClause) = 
     filterColumns columns . executeAggregates columns . executeWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
+
+showTables :: Either ErrorMessage DataFrame
+showTables = Right $ DataFrame [Column "Tables_in_database" StringType] [[StringValue a] | (a, _) <- InMemoryTables.database]
+
+showTable :: TableName -> Either ErrorMessage DataFrame
+showTable tableName = case findTableByName InMemoryTables.database tableName of
+    Just df -> Right df
+    Nothing -> Left "Table not found"
 
 executeWhereClauses :: Maybe Condition -> Maybe DataFrame -> Either ErrorMessage DataFrame
 executeWhereClauses _ Nothing = Left "Table not found"
