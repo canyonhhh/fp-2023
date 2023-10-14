@@ -38,7 +38,7 @@ removeSemicolons :: String -> String
 removeSemicolons = filter (/= ';')
 
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
-parseSelectAllStatement sql = case (map toLower sql) of
+parseSelectAllStatement sql = case map toLower (unwords . words $ sql) of
     ('s':'e':'l':'e':'c':'t':' ':'*':' ':'f':'r':'o':'m':' ':rest) -> 
         case words rest of
             (tableName:_) -> Right (removeSemicolons tableName)
