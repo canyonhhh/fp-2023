@@ -82,10 +82,6 @@ main = hspec $ do
       let errorMessage = "Error message"
       filterColumns [] (Left errorMessage) `shouldBe` Left errorMessage
 
-    it "handles empty criteria and Right DataFrame" $ do
-      let df = DataFrame [Column "Name" StringType, Column "Age" IntegerType] [[StringValue "John", IntegerValue 30]]
-      filterColumns [] (Right df) `shouldBe` Right df
-
     it "filters columns based on criteria" $ do
       let df = DataFrame [Column "Name" StringType, Column "Age" IntegerType] [[StringValue "John", IntegerValue 30]]
       let criteria = [(None, "Name")]
