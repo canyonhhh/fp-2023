@@ -7,6 +7,7 @@ module Lib2
     Condition (..),
     Aggregate (..),
     Database,
+    filterColumns
   )
 where
 
@@ -15,6 +16,7 @@ import Lib1
 import InMemoryTables (TableName, database)
 import Data.Char (toUpper, isLetter)
 import Data.List (isPrefixOf, isSuffixOf)
+import Data.List (elemIndex)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -133,6 +135,27 @@ executeAggregates :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> E
 executeAggregates _ (Left m) = Left m
 executeAggregates _ _ = Left "Not implemented"
 
+
 filterColumns :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
 filterColumns _ (Left m) = Left m
-filterColumns _ _ = Left "Not implemented"
+filterColumns criteria (Right (DataFrame columns rows))
+  | null columns && null rows = Right (DataFrame [] [])  -- Handle empty DataFrame
+  | otherwise =
+    let validColumns = filter (\(_, colName) -> any (\(Column name _) -> colName == name) columns) criteria
+        validColumnIndices = map (\(_, colName) -> getIndex colName columns) validColumns
+        missingColumns = filter (\(_, colName) -> notElem colName (map (\(Column name _) -> name) columns)) criteria
+        errorMessage = if not (null missingColumns)
+                       then "Column " ++ snd (head missingColumns) ++ " not found"
+                       else ""
+        filteredColumns = [columns !! idx | idx <- validColumnIndices]
+        filteredRows = map (\row -> [row !! idx | idx <- validColumnIndices]) rows
+    in if null errorMessage
+       then Right (DataFrame filteredColumns filteredRows)
+       else Left errorMessage
+
+getIndex :: String -> [Column] -> Int
+getIndex name cols = case elemIndex (Column name StringType) cols of
+  Just idx -> idx
+  Nothing  -> error ("Column " ++ name ++ " not found")
+
+
