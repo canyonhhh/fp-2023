@@ -51,29 +51,29 @@ main = hspec $ do
 
 	describe "Lib2.parseStatement" $ do
 	  it "handles basic SELECT statement" $ do
-	    parseStatement "SELECT id FROM employees" `shouldBe` Right (Select [(None, "id")] ("employees") Nothing)
+	    parseStatement "SELECT id FROM employees;" `shouldBe` Right (Select [(None, "id")] ("employees") Nothing)
 
 	  it "handles multiple column SELECT" $ do
-	    parseStatement "SELECT name, surname FROM employees" `shouldBe` Right (Select [(None, "name"), (None, "surname")] ("employees") Nothing)
+	    parseStatement "SELECT name, surname FROM employees;" `shouldBe` Right (Select [(None, "name"), (None, "surname")] ("employees") Nothing)
 
 	  it "parses SUM aggregate function" $ do
-	    parseStatement "SELECT SUM(id) FROM employees" `shouldBe` Right (Select [(Sum, "id")] ("employees") Nothing)
+	    parseStatement "SELECT SUM(id) FROM employees;" `shouldBe` Right (Select [(Sum, "id")] ("employees") Nothing)
 
           it "parses MAX aggregate function" $ do
-            parseStatement "SELECT MAX(name) FROM employees" `shouldBe` Right (Select [(Max, "name")] ("employees") Nothing)
+            parseStatement "SELECT MAX(name) FROM employees;" `shouldBe` Right (Select [(Max, "name")] ("employees") Nothing)
 
           it "parses WHERE clause with AND" $ do
-            parseStatement "SELECT id FROM employees WHERE name IS TRUE AND surname IS FALSE" `shouldBe` Right (Select [(None, "id")] ("employees") (Just (And (BoolCondition "name" True) (BoolCondition "surname" False))))
+            parseStatement "SELECT id FROM employees WHERE name IS TRUE AND surname IS FALSE;" `shouldBe` Right (Select [(None, "id")] ("employees") (Just (And (BoolCondition "name" True) (BoolCondition "surname" False))))
 
           it "parses WHERE clause with single condition" $ do
-            parseStatement "SELECT id FROM employees WHERE name IS TRUE" `shouldBe` Right (Select [(None, "id")] ("employees") (Just (BoolCondition "name" True)))
+            parseStatement "SELECT id FROM employees WHERE name IS TRUE;" `shouldBe` Right (Select [(None, "id")] ("employees") (Just (BoolCondition "name" True)))
 
           it "parses SHOW TABLES statement" $ do
-            parseStatement "SHOW TABLES" `shouldBe` Right ShowTables
+            parseStatement "SHOW TABLES;" `shouldBe` Right ShowTables
 
           it "parses SHOW TABLE with table name" $ do
-            parseStatement "SHOW TABLE employees" `shouldBe` Right (ShowTable "employees")
+            parseStatement "SHOW TABLE employees;" `shouldBe` Right (ShowTable "employees")
 
           it "returns error for invalid statement" $ do
-            parseStatement "INVALID STATEMENT" `shouldSatisfy` isLeft
+            parseStatement "INVALID STATEMENT;" `shouldSatisfy` isLeft
 
