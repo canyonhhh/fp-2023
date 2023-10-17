@@ -138,9 +138,9 @@ executeAggregates _ _ = Left "Not implemented"
 
 filterColumns :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
 filterColumns _ (Left m) = Left m
-filterColumns [] (Right df) = Right df
-
-filterColumns criteria (Right (DataFrame columns rows)) = 
+filterColumns criteria (Right (DataFrame columns rows))
+  | null columns && null rows = Right (DataFrame [] [])  -- Handle empty DataFrame
+  | otherwise =
     let validColumns = filter (\(_, colName) -> any (\(Column name _) -> colName == name) columns) criteria
         validColumnIndices = map (\(_, colName) -> getIndex colName columns) validColumns
         missingColumns = filter (\(_, colName) -> notElem colName (map (\(Column name _) -> name) columns)) criteria
@@ -153,12 +153,9 @@ filterColumns criteria (Right (DataFrame columns rows)) =
        then Right (DataFrame filteredColumns filteredRows)
        else Left errorMessage
 
--- Rest of the code remains the same
-
-
--- Helper function to get the index of a column by name
 getIndex :: String -> [Column] -> Int
 getIndex name cols = case elemIndex (Column name StringType) cols of
   Just idx -> idx
   Nothing  -> error ("Column " ++ name ++ " not found")
+
 
