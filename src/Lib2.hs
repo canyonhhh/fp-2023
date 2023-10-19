@@ -7,7 +7,7 @@ module Lib2
     Condition (..),
     Aggregate (..),
     Database,
-    filterColumns
+    selectColumns
   )
 where
 
@@ -15,8 +15,7 @@ import DataFrame
 import Lib1
 import InMemoryTables (TableName, database)
 import Data.Char (toUpper, isLetter)
-import Data.List (isPrefixOf, isSuffixOf)
-import Data.List (elemIndex)
+import Data.List (isPrefixOf, isSuffixOf, elemIndex)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -117,7 +116,7 @@ executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTables = showTables
 executeStatement (ShowTable name) = showTable name
 executeStatement (Select columns tableName whereClause) = 
-    filterColumns columns . executeAggregates columns . executeWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
+    selectColumns columns . executeAggregates columns . executeWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
 
 showTables :: Either ErrorMessage DataFrame
 showTables = Right $ DataFrame [Column "Tables_in_database" StringType] [[StringValue a] | (a, _) <- InMemoryTables.database]
@@ -136,14 +135,14 @@ executeAggregates _ (Left m) = Left m
 executeAggregates _ _ = Left "Not implemented"
 
 
-filterColumns :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
-filterColumns _ (Left m) = Left m
-filterColumns criteria (Right (DataFrame columns rows))
+selectColumns :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
+selectColumns _ (Left m) = Left m
+selectColumns criteria (Right (DataFrame columns rows))
   | null columns && null rows = Right (DataFrame [] [])  -- Handle empty DataFrame
   | otherwise =
     let validColumns = filter (\(_, colName) -> any (\(Column name _) -> colName == name) columns) criteria
         validColumnIndices = map (\(_, colName) -> getIndex colName columns) validColumns
-        missingColumns = filter (\(_, colName) -> notElem colName (map (\(Column name _) -> name) columns)) criteria
+        missingColumns = filter (\(_, colName) -> colName `notElem` map (\(Column name _) -> name) columns) criteria
         errorMessage = if not (null missingColumns)
                        then "Column " ++ snd (head missingColumns) ++ " not found"
                        else ""
@@ -157,5 +156,3 @@ getIndex :: String -> [Column] -> Int
 getIndex name cols = case elemIndex (Column name StringType) cols of
   Just idx -> idx
   Nothing  -> error ("Column " ++ name ++ " not found")
-
-
