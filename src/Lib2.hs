@@ -63,20 +63,29 @@ parseStatement z =
       else if take 6 s ==* "SELECT" then parseSelect s
       else Left "Invalid statement"
 
+--parseSelect :: String -> Either ErrorMessage ParsedStatement
+--parseSelect s = 
+    --case (parseColumns s, parseFromClause s, parseWhereClause s) of
+        --(Left err, _, _) -> Left err
+        --(_, Left err, _) -> Left err
+        --(_, _, Left err) -> Left err
+        --(Right columns, Right from, Right where_) -> Right $ Select columns from where_
+
 parseSelect :: String -> Either ErrorMessage ParsedStatement
-parseSelect s = Right $ 
-   Select (parseColumns s)
-          (parseFromClause s)
-          (parseWhereClause s)
+parseSelect s = do
+    columns <- parseColumns s
+    from <- parseFromClause s
+    where_ <- parseWhereClause s
+    return $ Select columns from where_
 
 -- Parse from SUM/MAX/None(column) to [(Aggregate, column)]
-parseColumns :: String -> [(Aggregate, String)]
+parseColumns :: String -> Either ErrorMessage [(Aggregate, String)]
 parseColumns s = 
    let columnString = takeWhile (\x -> not (x ==* "FROM")) . words $ s
-       columns = if length columnString == 1 
-                 then error "Invalid statement"
-                 else filter (not . null . snd) $ map (parseColumn . filter (/=',')) . tail $ columnString
-   in columns
+   in if length columnString == 1 
+                 then Left "Invalid statement"
+                 else Right $ filter (not . null . snd) $ map (parseColumn . filter (/=',')) . tail $ columnString
+
 
 -- Parse SUM/MAX/None(column) to (Aggregate, column)
 parseColumn :: String -> (Aggregate, String)
@@ -89,23 +98,27 @@ parseColumn s =
         extractColumnName :: String -> String
         extractColumnName = filter isLetter . init . drop 4
 
-parseFromClause :: String -> TableName
+parseFromClause :: String -> Either ErrorMessage TableName
 parseFromClause s = 
    let f = dropWhile (\x -> not (x ==* "FROM")) . words $ s
-   in if length f == 1 then error "Invalid statement"
-      else head . tail $ f
+   in if length f == 1 then Left "Invalid statement"
+      else Right $ head . tail $ f
 
-parseWhereClause :: String -> Maybe Condition
+parseWhereClause :: String -> Either ErrorMessage (Maybe Condition)
 parseWhereClause s = 
    let w = dropWhile (\x -> not (x ==* "WHERE")) . words $ s
-   in if null w then Nothing  -- Parse "cname IS TRUE/FALSE" into list of tuples [(cname, True/False), ...]
-      else Just . parseCondition . map ((\[x, y] -> (x, y)) . words . unwords . split (==*"IS")) . split(==*"AND") . unwords . tail $ w
+   in if null w then Right Nothing  -- Parse "cname IS TRUE/FALSE" into list of tuples [(cname, True/False), ...]
+      else case parseCondition . map ((\[x, y] -> (x, y)) . words . unwords . split (==*"IS")) . split(==*"AND") . unwords . tail $ w of
+          Left err -> Left err
+          Right condition -> Right $ Just condition
 
 -- Recursively parse a list of tuples [(cname, True/False), ...] into a Condition
-parseCondition :: [(String, String)] -> Condition
-parseCondition [] = error "Empty condition"
-parseCondition [(cname, bool)] = BoolCondition cname ((head . words $ bool) ==* "TRUE")
-parseCondition ((cname, bool):xs) = And (BoolCondition cname ((head . words $ bool) ==* "TRUE")) (parseCondition xs)
+parseCondition :: [(String, String)] -> Either ErrorMessage Condition
+parseCondition [] = Left "Empty condition"
+parseCondition [(cname, bool)] = Right $ BoolCondition cname ((head . words $ bool) ==* "TRUE")
+parseCondition ((cname, bool):xs) = case parseCondition xs of
+    Left err -> Left err
+    Right condition -> Right $ And (BoolCondition cname ((head . words $ bool) ==* "TRUE")) condition
 
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
@@ -153,6 +166,6 @@ selectColumns criteria (Right (DataFrame columns rows))
        else Left errorMessage
 
 getIndex :: String -> [Column] -> Int
-getIndex name cols = case elemIndex (Column name StringType) cols of
+getIndex name columns = case elemIndex (Column name StringType) columns of
   Just idx -> idx
   Nothing  -> error ("Column " ++ name ++ " not found")

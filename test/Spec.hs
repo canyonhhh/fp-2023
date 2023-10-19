@@ -3,7 +3,6 @@ import Data.Maybe ()
 import InMemoryTables qualified as D
 import Lib1
 import Lib2
-import Lib2 (filterColumns)
 import DataFrame
 import Test.Hspec
 
@@ -77,23 +76,23 @@ main = hspec $ do
     it "returns error for invalid statement" $ do
       parseStatement "INVALID STATEMENT" `shouldSatisfy` isLeft
 
-  describe "Lib2.filterColumns" $ do
+  describe "Lib2.selectColumns" $ do
     it "handles empty criteria and Left DataFrame" $ do
       let errorMessage = "Error message"
-      filterColumns [] (Left errorMessage) `shouldBe` Left errorMessage
+      selectColumns [] (Left errorMessage) `shouldBe` Left errorMessage
 
     it "filters columns based on criteria" $ do
       let df = DataFrame [Column "Name" StringType, Column "Age" IntegerType] [[StringValue "John", IntegerValue 30]]
       let criteria = [(None, "Name")]
       let expectedFilteredDf = DataFrame [Column "Name" StringType] [[StringValue "John"]]
-      filterColumns criteria (Right df) `shouldBe` Right expectedFilteredDf
+      selectColumns criteria (Right df) `shouldBe` Right expectedFilteredDf
 
     it "handles non-existent columns" $ do
       let df = DataFrame [Column "Name" StringType, Column "Age" IntegerType] [[StringValue "John", IntegerValue 30]]
       let criteria = [(None, "Country")]
       let errorMessage = "Column Country not found"
-      filterColumns criteria (Right df) `shouldBe` Left errorMessage
+      selectColumns criteria (Right df) `shouldBe` Left errorMessage
 
     it "handles invalid DataFrame" $ do
       let invalidDf = DataFrame [] []
-      filterColumns [(None, "Name")] (Right invalidDf) `shouldBe` Right invalidDf
+      selectColumns [(None, "Name")] (Right invalidDf) `shouldBe` Right invalidDf
