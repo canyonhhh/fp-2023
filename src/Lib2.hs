@@ -7,6 +7,10 @@ module Lib2
     Condition (..),
     Aggregate (..),
     Database,
+    showTables,
+    showTable,
+    applyWhereClauses,
+    applyAggregates,
     selectColumns
   )
 where
@@ -118,16 +122,16 @@ parseCondition ((cname, bool):xs) = case parseCondition xs of
 -- Then the aggregate functions are applied to the columns specified in the select statement
 -- The columns are then filtered to only include the columns specified in the select statement
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement ShowTables = showTables
-executeStatement (ShowTable name) = showTable name
+executeStatement ShowTables = showTables InMemoryTables.database
+executeStatement (ShowTable name) = showTable InMemoryTables.database name
 executeStatement (Select columns tableName whereClause) = 
     selectColumns columns . applyAggregates columns . applyWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
 
-showTables :: Either ErrorMessage DataFrame
-showTables = Right $ DataFrame [Column "Tables_in_database" StringType] [[StringValue a] | (a, _) <- InMemoryTables.database]
+showTables :: Database -> Either ErrorMessage DataFrame
+showTables db = Right $ DataFrame [Column "Tables_in_database" StringType] [[StringValue a] | (a, _) <- db]
 
-showTable :: TableName -> Either ErrorMessage DataFrame
-showTable tableName = case findTableByName InMemoryTables.database tableName of
+showTable :: Database -> TableName -> Either ErrorMessage DataFrame
+showTable db tableName = case findTableByName db tableName of
     Just df -> Right df
     Nothing -> Left "Table not found"
 
