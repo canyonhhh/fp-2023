@@ -13,21 +13,16 @@ import DataFrame
 import InMemoryTables (TableName)
 import Data.List (transpose)
 
-
-
 type ErrorMessage = String
 
 type Database = [(TableName, DataFrame)]
 
--- Your code modifications go below this comment
-
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
--- Convert both names to lowercase and then compare
 findTableByName :: Database -> TableName -> Maybe DataFrame
 findTableByName [] _ = Nothing  -- If the database is empty, return Nothing
 findTableByName ((tableName, dataFrame) : rest) name
-  | map toLower tableName == map toLower name = Just dataFrame  -- Case-insensitive comparison
+  | tableName == name = Just dataFrame  -- Case-sensitive comparison
   | otherwise = findTableByName rest name  -- Otherwise, search in the rest of the database
 
 

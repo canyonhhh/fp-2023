@@ -63,14 +63,6 @@ parseStatement z =
       else if take 6 s ==* "SELECT" then parseSelect s
       else Left "Invalid statement"
 
---parseSelect :: String -> Either ErrorMessage ParsedStatement
---parseSelect s = 
-    --case (parseColumns s, parseFromClause s, parseWhereClause s) of
-        --(Left err, _, _) -> Left err
-        --(_, Left err, _) -> Left err
-        --(_, _, Left err) -> Left err
-        --(Right columns, Right from, Right where_) -> Right $ Select columns from where_
-
 parseSelect :: String -> Either ErrorMessage ParsedStatement
 parseSelect s = do
     columns <- parseColumns s
@@ -129,7 +121,7 @@ executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTables = showTables
 executeStatement (ShowTable name) = showTable name
 executeStatement (Select columns tableName whereClause) = 
-    selectColumns columns . executeAggregates columns . executeWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
+    selectColumns columns . applyAggregates columns . applyWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
 
 showTables :: Either ErrorMessage DataFrame
 showTables = Right $ DataFrame [Column "Tables_in_database" StringType] [[StringValue a] | (a, _) <- InMemoryTables.database]
@@ -139,19 +131,19 @@ showTable tableName = case findTableByName InMemoryTables.database tableName of
     Just df -> Right df
     Nothing -> Left "Table not found"
 
-executeWhereClauses :: Maybe Condition -> Maybe DataFrame -> Either ErrorMessage DataFrame
-executeWhereClauses _ Nothing = Left "Table not found"
-executeWhereClauses _ _ = Left "Not implemented"
+applyWhereClauses :: Maybe Condition -> Maybe DataFrame -> Either ErrorMessage DataFrame
+applyWhereClauses _ Nothing = Left "Table not found"
+applyWhereClauses _ _ = Left "Not implemented"
 
-executeAggregates :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
-executeAggregates _ (Left m) = Left m
-executeAggregates _ _ = Left "Not implemented"
+applyAggregates :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
+applyAggregates _ (Left m) = Left m
+applyAggregates _ _ = Left "Not implemented"
 
 
 selectColumns :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
 selectColumns _ (Left m) = Left m
 selectColumns criteria (Right (DataFrame columns rows))
-  | null columns && null rows = Right (DataFrame [] [])  -- Handle empty DataFrame
+  | null columns && null rows = Left "Empty table"
   | otherwise =
     let validColumns = filter (\(_, colName) -> any (\(Column name _) -> colName == name) columns) criteria
         validColumnIndices = map (\(_, colName) -> getIndex colName columns) validColumns
