@@ -203,6 +203,10 @@ main = hspec $ do
     it "filters columns based on other criteria" $ do
       selectColumns [(Sum, "id")] (Right $ snd D.tableEmployees) `shouldBe` 
         Right (DataFrame [Column "id" IntegerType] [[IntegerValue 1], [IntegerValue 2]])
+    
+    it "filters columns based on other other criteria" $ do
+      selectColumns [(Sum, "surname")] (Right $ snd D.tableEmployees) `shouldBe` 
+        Right (DataFrame [Column "surname" StringType] [[StringValue "Po"], [StringValue "Dl"]])
 
     it "handles non-existent columns" $ do
       selectColumns [(Max, "NAME")] (Right $ snd D.tableEmployees) `shouldSatisfy` 

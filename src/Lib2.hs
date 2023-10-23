@@ -253,11 +253,6 @@ selectColumns criteria (Right (DataFrame columns rows))
        else Left errorMessage
 
 getIndex :: String -> [Column] -> Int
-getIndex name cols = case elemIndex (Column name StringType) cols of
-  Just idx -> idx
-  Nothing  -> error ("Column " ++ name ++ " not found")
-
-
-getIndex name columns = case elemIndex (Column name StringType) columns of
+getIndex name cols = case  name  `elemIndex` [cname | Column cname _ <- cols] of
   Just idx -> idx
   Nothing  -> error ("Column " ++ name ++ " not found")
