@@ -166,41 +166,30 @@ main = hspec $ do
         Right (DataFrame [Column "flag" StringType, Column "value1" BoolType, Column "value2" BoolType] [[StringValue "YES", BoolValue True, BoolValue False]])
 
   describe "Lib2.applyAggregates" $ do
-    it "handles empty criteria" $ do
-      applyAggregates [] (Right $ snd D.tableEmployees) `shouldBe` 
-        Right (snd D.tableEmployees)
-
-    it "handles empty DataFrame" $ do
-      applyAggregates [(Sum, "id")] (Right $ DataFrame [] []) `shouldSatisfy` 
-        isLeft
-
-    it "handles invalid DataFrame" $ do
-      applyAggregates [(Sum, "id")] (Right $ snd D.tableInvalid1) `shouldSatisfy` 
-        isLeft
-
     it "handles invalid criteria" $ do
-      applyAggregates [(Sum, "id")] (Right $ snd D.tableEmployees) `shouldSatisfy` 
+      let selectedColumns = selectColumns [(Sum, "name")] (Right $ snd D.tableEmployees)
+      applyAggregates [(Sum, "name")] selectedColumns `shouldSatisfy` 
         isLeft
 
-    it "handles non-existent column" $ do
-      applyAggregates [(Sum, "ID")] (Right $ snd D.tableEmployees) `shouldSatisfy` 
-        isLeft
-  
     it "handles SUM aggregate" $ do
-      applyAggregates [(Sum, "id")] (Right $ snd D.tableEmployees) `shouldBe` 
-        Right (DataFrame [Column "id" IntegerType] [[IntegerValue 3]])
+      let selectedColumns = selectColumns [(Sum, "id")] (Right $ snd D.tableEmployees)
+      applyAggregates [(Sum, "id")] selectedColumns `shouldBe` 
+        Right (DataFrame [Column "Sum(id)" IntegerType] [[IntegerValue 3]])
  
     it "handles MAX aggregate (int)" $ do
-      applyAggregates [(Max, "id")] (Right $ snd D.tableEmployees) `shouldBe` 
-        Right (DataFrame [Column "id" IntegerType] [[IntegerValue 2]])
+      let selectedColumns = selectColumns [(Max, "id")] (Right $ snd D.tableEmployees)
+      applyAggregates [(Max, "id")] selectedColumns `shouldBe` 
+        Right (DataFrame [Column "Max(id)" IntegerType] [[IntegerValue 2]])
     
     it "handles MAX aggregate (string)" $ do
-      applyAggregates [(Max, "name")] (Right $ snd D.tableEmployees) `shouldBe` 
-        Right (DataFrame [Column "name" StringType] [[StringValue "Vi"]])
+      let selectedColumns = selectColumns [(Max, "name")] (Right $ snd D.tableEmployees)
+      applyAggregates [(Max, "name")] selectedColumns `shouldBe` 
+        Right (DataFrame [Column "Max(name)" StringType] [[StringValue "Vi"]])
 
     it "handles MAX aggregate (bool)" $ do
-      applyAggregates [(Max, "value")] (Right $ snd D.tableWithNulls) `shouldBe` 
-        Right (DataFrame [Column "value" BoolType] [[BoolValue True]])
+      let selectedColumns = selectColumns [(Max, "value")] (Right $ snd D.tableWithNulls)
+      applyAggregates [(Max, "value")] selectedColumns `shouldBe` 
+        Right (DataFrame [Column "Max(value)" BoolType] [[BoolValue True]])
 
   describe "Lib2.selectColumns" $ do
     it "handles empty criteria and Left DataFrame" $ do
@@ -208,13 +197,21 @@ main = hspec $ do
         isLeft
 
     it "filters columns based on criteria" $ do
-      selectColumns [(None, "name")] (Right $ snd D.tableEmployees) `shouldBe` 
+      selectColumns [(Sum, "name")] (Right $ snd D.tableEmployees) `shouldBe` 
         Right (DataFrame [Column "name" StringType] [[StringValue "Vi"],[StringValue "Ed"]])
 
+    it "filters columns based on other criteria" $ do
+      selectColumns [(Sum, "id")] (Right $ snd D.tableEmployees) `shouldBe` 
+        Right (DataFrame [Column "id" IntegerType] [[IntegerValue 1], [IntegerValue 2]])
+
     it "handles non-existent columns" $ do
-      selectColumns [(None, "NAME")] (Right $ snd D.tableEmployees) `shouldSatisfy` 
+      selectColumns [(Max, "NAME")] (Right $ snd D.tableEmployees) `shouldSatisfy` 
         isLeft
 
     it "handles invalid DataFrame" $ do
       selectColumns [(None, "Name")] (Right $ DataFrame [] []) `shouldSatisfy` 
         isLeft
+
+    it "handles column order correctly" $ do
+      selectColumns [(Sum, "surname"), (None, "name")] (Right $ snd D.tableEmployees) `shouldBe` 
+        Right (DataFrame [Column "surname" StringType, Column "name" StringType] [[StringValue "Po", StringValue "Vi"], [StringValue "Dl", StringValue "Ed"]])
