@@ -1,4 +1,6 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Lib2
   ( parseStatement,
@@ -7,16 +9,21 @@ module Lib2
     Condition (..),
     Aggregate (..),
     Database,
-    filterColumns
+    showTables,
+    showTable,
+    applyWhereClauses,
+    applyAggregates,
+    selectColumns
   )
 where
 
 import DataFrame
 import Lib1
 import InMemoryTables (TableName, database)
-import Data.Char (toUpper, isLetter)
-import Data.List (isPrefixOf, isSuffixOf)
-import Data.List (elemIndex)
+import Data.Char (toUpper, isLetter, isSpace)
+import Data.List (isPrefixOf, isSuffixOf, elemIndex)
+import Control.Monad
+import Control.Monad.Fail
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -40,73 +47,165 @@ data ParsedStatement
              , whereClause :: Maybe Condition}
     deriving (Show, Eq)
 
--- Helpers
-split :: (String -> Bool) -> String -> [String]
-split f = map (unwords . words) . mergeSubstrings . scanl (\acc x -> if not (f x) then acc++" "++x else "") "" . words
+newtype Parser a = Parser {
+    runParser :: String -> Either ErrorMessage (String, a)
+}
 
-mergeSubstrings :: [String] -> [String]
-mergeSubstrings [] = []
-mergeSubstrings [a] = [a]
-mergeSubstrings (a:b:rest) = if a `isPrefixOf` b then mergeSubstrings (b:rest) else a:mergeSubstrings (b:rest)
+instance Functor Parser where
+  fmap f functor = Parser $ \inp ->
+    case runParser functor inp of
+        Left e -> Left e
+        Right (l, a) -> Right (l, f a)
 
--- Case insensitive string comparison
-(==*) :: String -> String -> Bool
-(==*) a b = map toUpper a == map toUpper b
+instance Applicative Parser where
+  pure a = Parser $ \inp -> Right (inp, a)
+  ff <*> fa = Parser $ \in1 ->
+    case runParser ff in1 of
+        Left e1 -> Left e1
+        Right (in2, f) -> case runParser fa in2 of
+            Left e2 -> Left e2
+            Right (in3, a) -> Right (in3, f a)
 
--- Parses user input into an entity representing a parsed
--- statement
-parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement z =
-   if last z /= ';' then Left "Invalid statement" else
-   let s = init . unwords $ words z
-   in if s ==* "SHOW TABLES" then Right ShowTables 
-      else if take 10 s ==* "SHOW TABLE" then Right $ ShowTable (drop 11 s)
-      else if take 6 s ==* "SELECT" then parseSelect s
-      else Left "Invalid statement"
+instance Monad Parser where
+  ma >>= mf = Parser $ \inp1 ->
+    case runParser ma inp1 of
+        Left e1 -> Left e1
+        Right (inp2, a) -> case runParser (mf a ) inp2 of
+            Left e2 -> Left e2
+            Right (inp3, r) -> Right (inp3, r)
 
-parseSelect :: String -> Either ErrorMessage ParsedStatement
-parseSelect s = Right $ 
-   Select (parseColumns s)
-          (parseFromClause s)
-          (parseWhereClause s)
+(<|>) :: Parser a -> Parser a -> Parser a
+pa <|> pb = Parser $ \inp ->
+    case runParser pa inp of
+        Left _ -> runParser pb inp
+        r -> r
 
--- Parse from SUM/MAX/None(column) to [(Aggregate, column)]
-parseColumns :: String -> [(Aggregate, String)]
-parseColumns s = 
-   let columnString = takeWhile (\x -> not (x ==* "FROM")) . words $ s
-       columns = if length columnString == 1 
-                 then error "Invalid statement"
-                 else filter (not . null . snd) $ map (parseColumn . filter (/=',')) . tail $ columnString
-   in columns
+parserFail :: ErrorMessage -> Parser a
+parserFail msg = Parser $ \_ -> Left msg
 
--- Parse SUM/MAX/None(column) to (Aggregate, column)
-parseColumn :: String -> (Aggregate, String)
-parseColumn s = 
-    case () of
-        _ | "SUM(" `isPrefixOf` s && ")" `isSuffixOf` s -> (Sum, extractColumnName s)
-          | "MAX(" `isPrefixOf` s && ")" `isSuffixOf` s -> (Max, extractColumnName s)
-          | otherwise -> (None, filter isLetter s)
-    where
-        extractColumnName :: String -> String
-        extractColumnName = filter isLetter . init . drop 4
+keyword :: String -> Parser String
+keyword kw = Parser $ \inp ->
+    if map toUpper kw `isPrefixOf` map toUpper inp
+    then Right (drop (length kw) inp, kw)
+    else Left ("Expected keyword " ++ kw)
 
-parseFromClause :: String -> TableName
-parseFromClause s = 
-   let f = dropWhile (\x -> not (x ==* "FROM")) . words $ s
-   in if length f == 1 then error "Invalid statement"
-      else head . tail $ f
+try :: Parser a -> Parser a
+try p = Parser $ \inp ->
+    case runParser p inp of
+        Left _ -> Left inp
+        result -> result
 
-parseWhereClause :: String -> Maybe Condition
-parseWhereClause s = 
-   let w = dropWhile (\x -> not (x ==* "WHERE")) . words $ s
-   in if null w then Nothing  -- Parse "cname IS TRUE/FALSE" into list of tuples [(cname, True/False), ...]
-      else Just . parseCondition . map ((\[x, y] -> (x, y)) . words . unwords . split (==*"IS")) . split(==*"AND") . unwords . tail $ w
+optional :: Parser a -> Parser (Maybe a)
+optional p = (Just <$> p) <|> pure Nothing
+
+some :: Parser a -> Parser [a]
+some p = (:) <$> p <*> many p
+
+many :: Parser a -> Parser [a]
+many p = some p <|> pure []
+
+satisfy :: (Char -> Bool) -> Parser Char
+satisfy f = Parser $ \case
+        [] -> Left "Unexpected end of input"
+        (x:xs) -> if f x
+                  then Right (xs, x)
+                  else Left ("Unexpected character " ++ [x])
+
+whitespace :: Parser String
+whitespace = Parser $ \inp ->
+    let (whitespaces, rest) = span isSpace inp
+    in case whitespaces of
+       [] -> Left "Expected whitespace"
+       _ -> Right (rest, whitespaces)
+
+selectParser :: Parser ParsedStatement
+selectParser = do
+    _ <- keyword "SELECT"
+    _ <- whitespace
+    agr <- columnsParser
+    _ <- whitespace
+    _ <- keyword "FROM"
+    _ <- whitespace
+    tableName <- some (satisfy isLetter)
+    do 
+        _ <- optional whitespace
+        _ <- keyword ";"
+        return $ Select agr tableName Nothing
+        <|> do
+           _ <- whitespace
+           _ <- keyword "WHERE"
+           whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
+           _ <- optional whitespace
+           _ <- keyword ";"
+           return $ Select agr tableName whereClause
+
+whereParser :: Parser Condition
+whereParser = do
+    firstCondition <- conditionParser
+    restConditions <- many (whitespace *> keyword "AND" *> conditionParser)
+    parseCondition (firstCondition:restConditions)
 
 -- Recursively parse a list of tuples [(cname, True/False), ...] into a Condition
-parseCondition :: [(String, String)] -> Condition
-parseCondition [] = error "Empty condition"
-parseCondition [(cname, bool)] = BoolCondition cname ((head . words $ bool) ==* "TRUE")
-parseCondition ((cname, bool):xs) = And (BoolCondition cname ((head . words $ bool) ==* "TRUE")) (parseCondition xs)
+parseCondition :: [(String, Bool)] -> Parser Condition
+parseCondition [] = parserFail "Empty condition"
+parseCondition [(cname, bool)] = return $ BoolCondition cname bool
+parseCondition ((cname, bool):xs) = do
+    condition <- parseCondition xs
+    return $ And (BoolCondition cname bool) condition
+
+conditionParser :: Parser (String, Bool)
+conditionParser = do
+    _ <- whitespace
+    cname <- some (satisfy isLetter)
+    _ <- optional whitespace
+    _ <- keyword "IS"
+    _ <- optional whitespace
+    value <- some (satisfy isLetter)
+    case map toUpper value of
+        "TRUE" -> return (cname, True)
+        "FALSE" -> return (cname, False)
+        _ -> parserFail "Expected boolean value"
+
+aggregateParser :: Parser (Aggregate, String)
+aggregateParser = do
+    aggregate <- keyword "SUM(" <|> keyword "MAX(" <|> pure ""
+    cname <- some (satisfy isLetter)
+    _ <- case aggregate of
+        "" -> pure ""
+        _ -> keyword ")"
+    return (case aggregate of
+        "SUM(" -> Sum
+        "MAX(" -> Max
+        _ -> None, cname)
+
+showTablesParser :: Parser ParsedStatement
+showTablesParser  = do
+    _ <- keyword "SHOW"
+    _ <- whitespace
+    _ <- keyword "TABLES"
+    _ <- optional whitespace
+    _ <- keyword ";"
+    return ShowTables
+
+showTableParser :: Parser ParsedStatement
+showTableParser = do
+    _ <- keyword "SHOW"
+    _ <- whitespace
+    _ <- keyword "TABLE"
+    _ <- whitespace
+    tableName <- some (satisfy isLetter) <|> parserFail "Expected table name"
+    --when (null tableName) (parserFail "Expected table name")
+    _ <- optional whitespace
+    _ <- keyword ";"
+    return $ ShowTable tableName
+
+columnsParser :: Parser [(Aggregate, String)]
+columnsParser = some (aggregateParser <* optional (keyword "," <* optional whitespace))
+
+parseStatement :: String -> Either ErrorMessage ParsedStatement
+parseStatement statement = runParser (try selectParser <|> showTablesParser <|> showTableParser) statement >>= \case
+    ("", parsedStatement) -> Right parsedStatement
+    (rest, _) -> Left ("Unexpected input: " ++ rest)
 
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
@@ -114,36 +213,36 @@ parseCondition ((cname, bool):xs) = And (BoolCondition cname ((head . words $ bo
 -- Then the aggregate functions are applied to the columns specified in the select statement
 -- The columns are then filtered to only include the columns specified in the select statement
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement ShowTables = showTables
-executeStatement (ShowTable name) = showTable name
+executeStatement ShowTables = showTables InMemoryTables.database
+executeStatement (ShowTable name) = showTable InMemoryTables.database name
 executeStatement (Select columns tableName whereClause) = 
-    filterColumns columns . executeAggregates columns . executeWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
+    selectColumns columns . applyAggregates columns . applyWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
 
-showTables :: Either ErrorMessage DataFrame
-showTables = Right $ DataFrame [Column "Tables_in_database" StringType] [[StringValue a] | (a, _) <- InMemoryTables.database]
+showTables :: Database -> Either ErrorMessage DataFrame
+showTables db = Right $ DataFrame [Column "Tables_in_database" StringType] [[StringValue a] | (a, _) <- db]
 
-showTable :: TableName -> Either ErrorMessage DataFrame
-showTable tableName = case findTableByName InMemoryTables.database tableName of
+showTable :: Database -> TableName -> Either ErrorMessage DataFrame
+showTable db tableName = case findTableByName db tableName of
     Just df -> Right df
     Nothing -> Left "Table not found"
 
-executeWhereClauses :: Maybe Condition -> Maybe DataFrame -> Either ErrorMessage DataFrame
-executeWhereClauses _ Nothing = Left "Table not found"
-executeWhereClauses _ _ = Left "Not implemented"
+applyWhereClauses :: Maybe Condition -> Maybe DataFrame -> Either ErrorMessage DataFrame
+applyWhereClauses _ Nothing = Left "Table not found"
+applyWhereClauses _ _ = Left "Not implemented"
 
-executeAggregates :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
-executeAggregates _ (Left m) = Left m
-executeAggregates _ _ = Left "Not implemented"
+applyAggregates :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
+applyAggregates _ (Left m) = Left m
+applyAggregates _ _ = Left "Not implemented"
 
 
-filterColumns :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
-filterColumns _ (Left m) = Left m
-filterColumns criteria (Right (DataFrame columns rows))
-  | null columns && null rows = Right (DataFrame [] [])  -- Handle empty DataFrame
+selectColumns :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
+selectColumns _ (Left m) = Left m
+selectColumns criteria (Right (DataFrame columns rows))
+  | null columns && null rows = Left "Empty table"
   | otherwise =
     let validColumns = filter (\(_, colName) -> any (\(Column name _) -> colName == name) columns) criteria
         validColumnIndices = map (\(_, colName) -> getIndex colName columns) validColumns
-        missingColumns = filter (\(_, colName) -> notElem colName (map (\(Column name _) -> name) columns)) criteria
+        missingColumns = filter (\(_, colName) -> colName `notElem` map (\(Column name _) -> name) columns) criteria
         errorMessage = if not (null missingColumns)
                        then "Column " ++ snd (head missingColumns) ++ " not found"
                        else ""
@@ -159,3 +258,6 @@ getIndex name cols = case elemIndex (Column name StringType) cols of
   Nothing  -> error ("Column " ++ name ++ " not found")
 
 
+getIndex name columns = case elemIndex (Column name StringType) columns of
+  Just idx -> idx
+  Nothing  -> error ("Column " ++ name ++ " not found")

@@ -9,26 +9,20 @@ module Lib1
 where
 
 import Data.Char (toLower)
-import DataFrame (DataFrame)
 import DataFrame
 import InMemoryTables (TableName)
 import Data.List (transpose)
-
-
 
 type ErrorMessage = String
 
 type Database = [(TableName, DataFrame)]
 
--- Your code modifications go below this comment
-
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
--- Convert both names to lowercase and then compare
 findTableByName :: Database -> TableName -> Maybe DataFrame
 findTableByName [] _ = Nothing  -- If the database is empty, return Nothing
 findTableByName ((tableName, dataFrame) : rest) name
-  | map toLower tableName == map toLower name = Just dataFrame  -- Case-insensitive comparison
+  | tableName == name = Just dataFrame  -- Case-sensitive comparison
   | otherwise = findTableByName rest name  -- Otherwise, search in the rest of the database
 
 
@@ -59,31 +53,29 @@ validateDataFrame (DataFrame columns rows) =
     checkValueType _ _ = False
 
     validateColumn :: Column -> [Value] -> Bool   -- Check if all values in a column have the correct type
-    validateColumn (Column _ colType) values =
-      all (\value -> checkValueType value colType) values
+    validateColumn (Column _ colType) =
+      all (`checkValueType` colType)
 
     validateRowSize :: [Value] -> Bool    -- Check if all rows have the correct number of columns
     validateRowSize values = length values == length columns
    
-    columnChecks = map (\(Column name colType, values) -> (name, validateColumn (Column name colType) values)) (zip columns (transpose rows))   -- Check columns (headers)
+    columnChecks = zipWith (curry (\(Column name colType, values) -> (name, validateColumn (Column name colType) values))) columns (transpose rows)
+   -- Check columns (headers)
     
-    rowChecks = map (\row -> validateRowSize row) rows    -- Check each row
+    rowChecks = map validateRowSize rows    -- Check each row
    
-    allChecks = all snd columnChecks && all (==True) rowChecks    -- Combine all checks
+    allChecks = all snd columnChecks && and rowChecks    -- Combine all checks
 
-    generateError = 
-      if all (==True) rowChecks then    -- If the generateError function was called it means one of the tests failed, if this is true it means the other test failed
-          "Error was the column type missmatch"
-      else if all snd columnChecks then   -- Same concept here
-          "Error was the row size missmatch"
-      else    -- Both failed
-          "Error was the row size missmatch and the column type missmatch"
+    generateError
+     | and rowChecks = "Error was the column type mismatch"
+     | all snd columnChecks    = "Error was the row size mismatch"
+     | otherwise               = "Error was the row size mismatch and the column type mismatch"
     
   in
     if allChecks then
       Right ()
     else
-      Left (generateError)
+      Left generateError
 
 
 -- 4) implement the function which renders a given data frame
