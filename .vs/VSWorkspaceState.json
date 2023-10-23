@@ -1,7 +1,9 @@
 {
   "ExpandedNodes": [
     "",
-    "\\src"
+    "\\src",
+    "\\test"
   ],
+  "SelectedNode": "\\package.yaml",
   "PreviewInSolutionExplorer": false
 }

@@ -21,7 +21,7 @@ import DataFrame
 import Lib1
 import InMemoryTables (TableName, database)
 import Data.Char (toUpper, isLetter, isSpace)
-import Data.List (isPrefixOf, isSuffixOf, elemIndex)
+import Data.List (isPrefixOf, isSuffixOf, elemIndex, transpose, partition)
 import Control.Monad
 import Control.Monad.Fail
 
@@ -232,8 +232,53 @@ applyWhereClauses _ _ = Left "Not implemented"
 
 applyAggregates :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
 applyAggregates _ (Left m) = Left m
-applyAggregates _ _ = Left "Not implemented"
-
+applyAggregates _ (Right (DataFrame [] [])) = Left "Empty table"
+applyAggregates criteria (Right (DataFrame columns rows)) =
+    let (nones, notNones) = partition (== None) [aggregate | (aggregate, _) <- criteria]
+        validAggregates = verifyAggregates (nones, notNones)
+        validTypes = verifyAggregateTypes columns criteria
+        columns' = [Column (show aggregate ++ "("++cname++")") ctype | (aggregate, cname) <- criteria, Column cname' ctype <- columns, cname == cname']
+        valueGroups = transpose rows
+        applicator = [if aggregate == Max then applyMaxAggregate else applySumAggregate | (aggregate, _) <- criteria]
+        rows' = transpose $ zipWith (\f values -> [f values]) applicator valueGroups
+    in
+        if null notNones then Right (DataFrame columns rows)
+        else if not validAggregates then Left "Cannot mix aggregate and non-aggregate functions"
+        else if not validTypes then Left "Cannot apply SUM() to non-integer column"
+        else Right (DataFrame columns' rows')
+ 
+-- Apply max aggregate to Integers, Bools, Strings, and handle NULL values
+applyMaxAggregate :: [Value] -> Value
+applyMaxAggregate v = case head values of
+    (IntegerValue _) -> IntegerValue $ maximum [x | IntegerValue x <- values]
+    (BoolValue _) -> BoolValue $ maximum [x | BoolValue x <- values]
+    (StringValue _) -> StringValue $ maximum [x | StringValue x <- values]
+    NullValue -> NullValue
+    where
+        values = filter (/= NullValue) v
+ 
+-- Apply sum aggregate to Integers, and handle NULL values
+applySumAggregate :: [Value] -> Value
+applySumAggregate values = case head values of
+    (IntegerValue _) -> IntegerValue $ sum [x | IntegerValue x <- values]
+    NullValue -> NullValue
+    (BoolValue _) -> error "Cannot apply SUM() to Bool column (I should not have gotten here)"
+    (StringValue _) -> error "Cannot apply SUM() to String column (I should not have gotten here)"
+ 
+verifyAggregateTypes :: [Column] -> [(Aggregate, String)] -> Bool
+verifyAggregateTypes columns criteria =
+    let aggregates = [(ctype, aggregate) | (Column cname ctype) <- columns, (aggregate, cname') <- criteria, cname == cname']
+        --aggregates = [(ctype, aggregate) | Column (cname, ctype) <- columns, (aggregate, cname') <- criteria, cname == cname']
+        sums = filter (\(_, aggregate) -> aggregate == Sum) aggregates
+        -- MAX() works with every datatype
+        --maxs = filter (\(ctype, aggregate) -> aggregate == Max) aggregates 
+        invalidSums = any (\(ctype, _) -> ctype /= IntegerType) sums 
+    in  not invalidSums
+ 
+verifyAggregates :: ([Aggregate], [Aggregate]) -> Bool
+verifyAggregates (nones, notNones)
+  | not (null notNones) && not (null nones) = False
+  | otherwise = True
 
 selectColumns :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
 selectColumns _ (Left m) = Left m
