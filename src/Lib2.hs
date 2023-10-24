@@ -227,7 +227,32 @@ showTable db tableName = case findTableByName db tableName of
 
 applyWhereClauses :: Maybe Condition -> Maybe DataFrame -> Either ErrorMessage DataFrame
 applyWhereClauses _ Nothing = Left "Table not found"
-applyWhereClauses _ _ = Left "Not implemented"
+applyWhereClauses Nothing (Just df) = Right df
+applyWhereClauses _ (Just (DataFrame [] [])) = Left "Empty table"
+applyWhereClauses (Just condition) (Just (DataFrame columns rows)) = 
+    let 
+        typesValid = verifyWhereClauseTypes columns condition
+    in
+        if not typesValid then Left "Cannot apply WHERE clause to non-boolean column"
+        else Right (DataFrame columns (filter (applyCondition columns condition) rows))
+ 
+applyCondition :: [Column] -> Condition -> [Value] -> Bool
+applyCondition columns (BoolCondition cname bool) values =
+    let columnIdx = getIndex cname columns
+        value = values !! columnIdx
+    in case value of
+        (BoolValue b) -> b == bool
+        NullValue -> not bool
+        _ -> error "Non-boolean condition not implemented"
+applyCondition columns (And c1 c2) values = applyCondition columns c1 values && applyCondition columns c2 values
+ 
+ 
+verifyWhereClauseTypes :: [Column] -> Condition -> Bool 
+verifyWhereClauseTypes columns (BoolCondition cname _) =
+    case [(ctype, cname) | Column cname' ctype <- columns, cname == cname'] of
+        ((BoolType, _):_) -> True
+        _ -> False
+verifyWhereClauseTypes columns (And c1 c2) = verifyWhereClauseTypes columns c1 && verifyWhereClauseTypes columns c2
 
 applyAggregates :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
 applyAggregates _ (Left m) = Left m
