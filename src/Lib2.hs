@@ -1,5 +1,7 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
-{-# LANGUAGE TupleSections #-} {-# LANGUAGE LambdaCase #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-partial-fields #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Lib2
   ( parseStatement,
@@ -19,10 +21,9 @@ where
 import DataFrame
 import Lib1
 import InMemoryTables (TableName, database)
-import Data.Char (toUpper, isLetter, isSpace)
-import Data.List (isPrefixOf, isSuffixOf, elemIndex, partition, transpose)
-import Control.Monad
-import Control.Monad.Fail
+import Data.Char (toUpper, isLetter, isSpace, isAlphaNum)
+import Data.List (isPrefixOf, elemIndex, partition, transpose)
+import Control.Applicative (many, some, Alternative(empty, (<|>)), optional)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -45,6 +46,8 @@ data ParsedStatement
              , tableName :: TableName
              , whereClause :: Maybe Condition}
     deriving (Show, Eq)
+
+-- Parser
 
 newtype Parser a = Parser {
     runParser :: String -> Either ErrorMessage (String, a)
@@ -73,11 +76,14 @@ instance Monad Parser where
             Left e2 -> Left e2
             Right (inp3, r) -> Right (inp3, r)
 
-(<|>) :: Parser a -> Parser a -> Parser a
-pa <|> pb = Parser $ \inp ->
-    case runParser pa inp of
-        Left _ -> runParser pb inp
-        r -> r
+instance Alternative Parser where
+    empty = Parser $ \_ -> Left "Error"
+    p1 <|> p2 = Parser $ \inp ->
+        case runParser p1 inp of
+            Right a1 -> Right a1
+            Left _ -> case runParser p2 inp of
+                Right a2 -> Right a2
+                Left err -> Left err
 
 parserFail :: ErrorMessage -> Parser a
 parserFail msg = Parser $ \_ -> Left msg
@@ -94,15 +100,6 @@ try p = Parser $ \inp ->
         Left _ -> Left inp
         result -> result
 
-optional :: Parser a -> Parser (Maybe a)
-optional p = (Just <$> p) <|> pure Nothing
-
-some :: Parser a -> Parser [a]
-some p = (:) <$> p <*> many p
-
-many :: Parser a -> Parser [a]
-many p = some p <|> pure []
-
 satisfy :: (Char -> Bool) -> Parser Char
 satisfy f = Parser $ \case
         [] -> Left "Unexpected end of input"
@@ -117,26 +114,7 @@ whitespace = Parser $ \inp ->
        [] -> Left "Expected whitespace"
        _ -> Right (rest, whitespaces)
 
-selectParser :: Parser ParsedStatement
-selectParser = do
-    _ <- keyword "SELECT"
-    _ <- whitespace
-    agr <- columnsParser
-    _ <- whitespace
-    _ <- keyword "FROM"
-    _ <- whitespace
-    tableName <- some (satisfy isLetter)
-    do 
-        _ <- optional whitespace
-        _ <- keyword ";"
-        return $ Select agr tableName Nothing
-        <|> do
-           _ <- whitespace
-           _ <- keyword "WHERE"
-           whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
-           _ <- optional whitespace
-           _ <- keyword ";"
-           return $ Select agr tableName whereClause
+-- Where Clause Parsing
 
 whereParser :: Parser Condition
 whereParser = do
@@ -155,7 +133,7 @@ parseCondition ((cname, bool):xs) = do
 conditionParser :: Parser (String, Bool)
 conditionParser = do
     _ <- whitespace
-    cname <- some (satisfy isLetter)
+    cname <- some (satisfy isAlphaNum)
     _ <- optional whitespace
     _ <- keyword "IS"
     _ <- optional whitespace
@@ -165,10 +143,12 @@ conditionParser = do
         "FALSE" -> return (cname, False)
         _ -> parserFail "Expected boolean value"
 
+-- Column and Aggregate Parsing
+
 aggregateParser :: Parser (Aggregate, String)
 aggregateParser = do
     aggregate <- keyword "SUM(" <|> keyword "MAX(" <|> pure ""
-    cname <- some (satisfy isLetter)
+    cname <- some (satisfy isAlphaNum)
     _ <- case aggregate of
         "" -> pure ""
         _ -> keyword ")"
@@ -176,6 +156,11 @@ aggregateParser = do
         "SUM(" -> Sum
         "MAX(" -> Max
         _ -> None, cname)
+
+columnsParser :: Parser [(Aggregate, String)]
+columnsParser = some (aggregateParser <* optional (keyword "," <* optional whitespace))
+
+-- Main parsers
 
 showTablesParser :: Parser ParsedStatement
 showTablesParser  = do
@@ -192,17 +177,34 @@ showTableParser = do
     _ <- whitespace
     _ <- keyword "TABLE"
     _ <- whitespace
-    tableName <- some (satisfy isLetter) <|> parserFail "Expected table name"
-    --when (null tableName) (parserFail "Expected table name")
+    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
     _ <- optional whitespace
     _ <- keyword ";"
     return $ ShowTable tableName
 
-columnsParser :: Parser [(Aggregate, String)]
-columnsParser = some (aggregateParser <* optional (keyword "," <* optional whitespace))
+selectParser :: Parser ParsedStatement
+selectParser = do
+    _ <- keyword "SELECT"
+    _ <- whitespace
+    agr <- columnsParser
+    _ <- whitespace
+    _ <- keyword "FROM"
+    _ <- whitespace
+    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    do 
+        _ <- optional whitespace
+        _ <- keyword ";"
+        return $ Select agr tableName Nothing
+        <|> do
+           _ <- whitespace
+           _ <- keyword "WHERE"
+           whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
+           _ <- optional whitespace
+           _ <- keyword ";"
+           return $ Select agr tableName whereClause
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement statement = runParser (try selectParser <|> showTablesParser <|> showTableParser) statement >>= \case
+parseStatement statement = runParser (try selectParser <|> try showTablesParser <|> try showTableParser) statement >>= \case
     ("", parsedStatement) -> Right parsedStatement
     (rest, _) -> Left ("Unexpected input: " ++ rest)
 
@@ -217,6 +219,8 @@ executeStatement (ShowTable name) = showTable InMemoryTables.database name
 executeStatement (Select columns tableName whereClause) = 
     applyAggregates columns . selectColumns columns . applyWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
 
+-- SHOW TABLES and SHOW TABLE
+
 showTables :: Database -> Either ErrorMessage DataFrame
 showTables db = Right $ DataFrame [Column "Tables_in_database" StringType] [[StringValue a] | (a, _) <- db]
 
@@ -224,6 +228,8 @@ showTable :: Database -> TableName -> Either ErrorMessage DataFrame
 showTable db tableName = case findTableByName db tableName of
     Just df -> Right df
     Nothing -> Left "Table not found"
+
+-- Where clauses
 
 applyWhereClauses :: Maybe Condition -> Maybe DataFrame -> Either ErrorMessage DataFrame
 applyWhereClauses _ Nothing = Left "Table not found"
@@ -237,6 +243,7 @@ applyWhereClauses (Just condition) (Just (DataFrame columns rows)) =
         else Right (DataFrame columns (filter (applyCondition columns condition) rows))
  
 applyCondition :: [Column] -> Condition -> [Value] -> Bool
+applyCondition columns (And c1 c2) values = applyCondition columns c1 values && applyCondition columns c2 values
 applyCondition columns (BoolCondition cname bool) values =
     let columnIdx = getIndex cname columns
         value = values !! columnIdx
@@ -244,15 +251,16 @@ applyCondition columns (BoolCondition cname bool) values =
         (BoolValue b) -> b == bool
         NullValue -> not bool
         _ -> error "Non-boolean condition not implemented"
-applyCondition columns (And c1 c2) values = applyCondition columns c1 values && applyCondition columns c2 values
  
  
 verifyWhereClauseTypes :: [Column] -> Condition -> Bool 
+verifyWhereClauseTypes columns (And c1 c2) = verifyWhereClauseTypes columns c1 && verifyWhereClauseTypes columns c2
 verifyWhereClauseTypes columns (BoolCondition cname _) =
     case [(ctype, cname) | Column cname' ctype <- columns, cname == cname'] of
         ((BoolType, _):_) -> True
         _ -> False
-verifyWhereClauseTypes columns (And c1 c2) = verifyWhereClauseTypes columns c1 && verifyWhereClauseTypes columns c2
+
+-- Aggregates
 
 applyAggregates :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
 applyAggregates _ (Left m) = Left m
@@ -271,7 +279,6 @@ applyAggregates criteria (Right (DataFrame columns rows)) =
         else if not validTypes then Left "Cannot apply SUM() to non-integer column"
         else Right (DataFrame columns' rows')
 
--- Apply max aggregate to Integers, Bools, Strings, and handle NULL values
 applyMaxAggregate :: [Value] -> Value
 applyMaxAggregate v = case head values of
     (IntegerValue _) -> IntegerValue $ maximum [x | IntegerValue x <- values]
@@ -281,18 +288,16 @@ applyMaxAggregate v = case head values of
     where
         values = filter (/= NullValue) v
 
--- Apply sum aggregate to Integers, and handle NULL values
 applySumAggregate :: [Value] -> Value
 applySumAggregate values = case head values of
     (IntegerValue _) -> IntegerValue $ sum [x | IntegerValue x <- values]
     NullValue -> NullValue
-    (BoolValue _) -> error "Cannot apply SUM() to Bool column (I should not have gotten here)"
-    (StringValue _) -> error "Cannot apply SUM() to String column (I should not have gotten here)"
+    (BoolValue _) -> error "Cannot apply SUM() to Bool column (Invalid path)"
+    (StringValue _) -> error "Cannot apply SUM() to String column (Invalid path)"
 
 verifyAggregateTypes :: [Column] -> [(Aggregate, String)] -> Bool
 verifyAggregateTypes columns criteria =
     let aggregates = [(ctype, aggregate) | (Column cname ctype) <- columns, (aggregate, cname') <- criteria, cname == cname']
-        --aggregates = [(ctype, aggregate) | Column (cname, ctype) <- columns, (aggregate, cname') <- criteria, cname == cname']
         sums = filter (\(_, aggregate) -> aggregate == Sum) aggregates
         -- MAX() works with every datatype
         --maxs = filter (\(ctype, aggregate) -> aggregate == Max) aggregates 
@@ -303,6 +308,8 @@ verifyAggregates :: ([Aggregate], [Aggregate]) -> Bool
 verifyAggregates (nones, notNones)
   | not (null notNones) && not (null nones) = False
   | otherwise = True
+
+-- List Columns
 
 selectColumns :: [(Aggregate, String)] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
 selectColumns _ (Left m) = Left m
