@@ -124,7 +124,7 @@ main = hspec $ do
   describe "Lib2.showTable" $ do
     it "returns table" $ do
       showTable D.database "flags" `shouldBe`
-        Right (snd D.tableWithNulls)
+        Right (DataFrame [Column "Field" StringType,Column "Type" StringType] [[StringValue "flag",StringValue "StringType"],[StringValue "value",StringValue "BoolType"]])
 
     it "handles invalid name" $ do
       showTable D.database "hello there" `shouldSatisfy`
@@ -157,7 +157,7 @@ main = hspec $ do
 
     it "filters false values" $ do
       applyWhereClauses (Just $ BoolCondition "value" False) (Just $ snd D.tableWithNulls) `shouldBe`
-        Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "b", NullValue], [StringValue "b", BoolValue False]])
+        Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "b", BoolValue False]])
 
     it "handles multiple conditions" $ do
       let df = DataFrame [Column "flag" StringType, Column "value1" BoolType, Column "value2" BoolType] [[StringValue "YES", BoolValue True, BoolValue False], [StringValue "NO", BoolValue True, BoolValue True], [StringValue "NO", BoolValue False, BoolValue False]]

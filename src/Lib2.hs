@@ -42,6 +42,7 @@ data Aggregate
 data ParsedStatement
     = ShowTables
     | ShowTable TableName
+    | SelectAll TableName
     | Select { columns :: [(Aggregate, String)]
              , tableName :: TableName
              , whereClause :: Maybe Condition}
@@ -162,6 +163,19 @@ columnsParser = some (aggregateParser <* optional (keyword "," <* optional white
 
 -- Main parsers
 
+selectAllParser :: Parser ParsedStatement
+selectAllParser = do
+    _ <- keyword "SELECT"
+    _ <- whitespace
+    _ <- keyword "*"
+    _ <- whitespace
+    _ <- keyword "FROM"
+    _ <- whitespace
+    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    _ <- optional whitespace
+    _ <- keyword ";"
+    return $ SelectAll tableName
+
 showTablesParser :: Parser ParsedStatement
 showTablesParser  = do
     _ <- keyword "SHOW"
@@ -204,7 +218,7 @@ selectParser = do
            return $ Select agr tableName whereClause
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement statement = runParser (try selectParser <|> try showTablesParser <|> try showTableParser) statement >>= \case
+parseStatement statement = runParser (try selectParser <|> try showTablesParser <|> try showTableParser <|> try selectAllParser) statement >>= \case
     ("", parsedStatement) -> Right parsedStatement
     (rest, _) -> Left ("Unexpected input: " ++ rest)
 
@@ -216,17 +230,18 @@ parseStatement statement = runParser (try selectParser <|> try showTablesParser 
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTables = showTables InMemoryTables.database
 executeStatement (ShowTable name) = showTable InMemoryTables.database name
+executeStatement (SelectAll name) = maybe (Left "Table not found") Right (findTableByName InMemoryTables.database name)
 executeStatement (Select columns tableName whereClause) = 
     applyAggregates columns . selectColumns columns . applyWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
 
 -- SHOW TABLES and SHOW TABLE
-
 showTables :: Database -> Either ErrorMessage DataFrame
 showTables db = Right $ DataFrame [Column "Tables_in_database" StringType] [[StringValue a] | (a, _) <- db]
 
+-- finds table by name and returns the columns and data types of the table (without the rows)
 showTable :: Database -> TableName -> Either ErrorMessage DataFrame
 showTable db tableName = case findTableByName db tableName of
-    Just df -> Right df
+    Just (DataFrame columns _) -> Right $ DataFrame [Column "Field" StringType, Column "Type" StringType] [[StringValue cname, StringValue (show ctype)] | Column cname ctype <- columns]
     Nothing -> Left "Table not found"
 
 -- Where clauses
@@ -249,7 +264,7 @@ applyCondition columns (BoolCondition cname bool) values =
         value = values !! columnIdx
     in case value of
         (BoolValue b) -> b == bool
-        NullValue -> not bool
+        NullValue -> False
         _ -> error "Non-boolean condition not implemented"
  
  
