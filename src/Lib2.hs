@@ -21,7 +21,7 @@ where
 import DataFrame
 import Lib1
 import InMemoryTables (TableName, database)
-import Data.Char (toUpper, isLetter, isSpace, isAlphaNum)
+import Data.Char (toUpper, isSpace, isAlphaNum, isDigit, isLetter, isAscii, isAlpha)
 import Data.List (isPrefixOf, elemIndex, partition, transpose)
 import Control.Applicative (many, some, Alternative(empty, (<|>)), optional)
 
@@ -30,6 +30,8 @@ type Database = [(TableName, DataFrame)]
 
 data Condition
     = And Condition Condition
+    | Or Condition Condition
+    | Equal String Value
     | BoolCondition String Bool
     deriving (Show, Eq)
 
@@ -45,6 +47,13 @@ data ParsedStatement
     | SelectAll TableName
     | Select { columns :: [(Aggregate, String)]
              , tableName :: TableName
+             , whereClause :: Maybe Condition}
+    | Insert { tableName :: TableName
+             , row :: Row}
+    | Delete { tableName :: TableName
+             , whereClause :: Maybe Condition}
+    | Update { tableName :: TableName
+             , values :: [(String, Value)]
              , whereClause :: Maybe Condition}
     deriving (Show, Eq)
 
@@ -116,36 +125,33 @@ whitespace = Parser $ \inp ->
        _ -> Right (rest, whitespaces)
 
 -- Where Clause Parsing
-
 whereParser :: Parser Condition
 whereParser = do
     firstCondition <- conditionParser
     restConditions <- many (whitespace *> keyword "AND" *> conditionParser)
-    parseCondition (firstCondition:restConditions)
+    return $ foldr And firstCondition restConditions
 
--- Recursively parse a list of tuples [(cname, True/False), ...] into a Condition
-parseCondition :: [(String, Bool)] -> Parser Condition
-parseCondition [] = parserFail "Empty condition"
-parseCondition [(cname, bool)] = return $ BoolCondition cname bool
-parseCondition ((cname, bool):xs) = do
-    condition <- parseCondition xs
-    return $ And (BoolCondition cname bool) condition
-
-conditionParser :: Parser (String, Bool)
+conditionParser :: Parser Condition
 conditionParser = do
     _ <- whitespace
-    cname <- some (satisfy isAlphaNum)
+    columnName <- some (satisfy isAlphaNum)
     _ <- optional whitespace
+    equalCondition columnName <|> boolCondition columnName
+
+equalCondition :: String -> Parser Condition
+equalCondition columnName = do
+   _ <- keyword "="
+   _ <- optional whitespace
+   Equal columnName <$> valueParser
+
+boolCondition :: String -> Parser Condition
+boolCondition columnName = do
     _ <- keyword "IS"
     _ <- optional whitespace
-    value <- some (satisfy isLetter)
-    case map toUpper value of
-        "TRUE" -> return (cname, True)
-        "FALSE" -> return (cname, False)
-        _ -> parserFail "Expected boolean value"
+    value <- (keyword "TRUE" *> pure True) <|> (keyword "FALSE" *> pure False)
+    return $ BoolCondition columnName value
 
 -- Column and Aggregate Parsing
-
 aggregateParser :: Parser (Aggregate, String)
 aggregateParser = do
     aggregate <- keyword "SUM(" <|> keyword "MAX(" <|> pure ""
@@ -161,8 +167,47 @@ aggregateParser = do
 columnsParser :: Parser [(Aggregate, String)]
 columnsParser = some (aggregateParser <* optional (keyword "," <* optional whitespace))
 
--- Main parsers
+-- Value Parsing
+-- Parse bools, ints, strings and nulls
+-- strings are alphanumeric and can contain underscores and are surrounded by single quotes
+-- nulls are represented by the keyword NULL
+-- bools are represented by the keywords TRUE and FALSE
+-- ints are represented by a sequence of digits
+valueParser :: Parser Value
+valueParser = do
+    _ <- optional whitespace
+    value <- try boolParser <|> try intParser <|> try stringParser <|> nullParser
+    _ <- optional whitespace
+    _ <- optional $ keyword ","
+    _ <- optional whitespace
+    return value
 
+boolParser :: Parser Value
+boolParser = do
+    value <- keyword "TRUE" <|> keyword "FALSE"
+    return $ case value of
+        "TRUE" -> BoolValue True
+        "FALSE" -> BoolValue False
+        _ -> error "Invalid path"
+
+intParser :: Parser Value
+intParser = do
+    digits <- some (satisfy isDigit)
+    return $ IntegerValue (read digits)
+
+stringParser :: Parser Value
+stringParser = do
+    _ <- keyword "'"
+    string <- some (satisfy isAlphaNum <|> satisfy isSpace)
+    _ <- keyword "'"
+    return $ StringValue string
+
+nullParser :: Parser Value
+nullParser = do
+    _ <- keyword "NULL"
+    return NullValue
+
+-- Main parsers
 selectAllParser :: Parser ParsedStatement
 selectAllParser = do
     _ <- keyword "SELECT"
@@ -217,8 +262,79 @@ selectParser = do
            _ <- keyword ";"
            return $ Select agr tableName whereClause
 
+-- WRITING OPERATION PARSERS
+insertParser :: Parser ParsedStatement
+insertParser = do
+    _ <- keyword "INSERT"
+    _ <- whitespace
+    _ <- keyword "INTO"
+    _ <- whitespace
+    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    _ <- whitespace
+    _ <- keyword "VALUES"
+    _ <- whitespace
+    _ <- keyword "("
+    values <- some valueParser <|> some valueParser
+    _ <- keyword ")"
+    _ <- optional whitespace
+    _ <- keyword ";"
+    return $ Insert tableName values
+
+deleteParser :: Parser ParsedStatement
+deleteParser = do
+    _ <- keyword "DELETE"
+    _ <- whitespace
+    _ <- keyword "FROM"
+    _ <- whitespace
+    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    do
+        _ <- optional whitespace
+        _ <- keyword ";"
+        return $ Delete tableName Nothing
+        <|> do
+            _ <- whitespace
+            _ <- keyword "WHERE"
+            whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
+            _ <- optional whitespace
+            _ <- keyword ";"
+            return $ Delete tableName whereClause
+
+valueParser' :: Parser (String, Value)
+valueParser' = do
+    _ <- optional whitespace
+    columnName <- some (satisfy isAlphaNum)
+    _ <- optional whitespace
+    _ <- keyword "="
+    _ <- optional whitespace
+    value <- valueParser
+    _ <- optional whitespace
+    return (columnName, value)
+
+updateParser :: Parser ParsedStatement
+updateParser = do
+    _ <- keyword "UPDATE"
+    _ <- whitespace
+    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    _ <- whitespace
+    _ <- keyword "SET"
+    _ <- whitespace
+    -- City = 'Frankfurt', Country = 'Germany', Population = 500000
+    values <- some valueParser' <* keyword "," <|> some valueParser'
+    _ <- optional whitespace
+    _ <- keyword "WHERE"
+    whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
+    _ <- optional whitespace
+    _ <- keyword ";"
+    return $ Update tableName values whereClause
+
 parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement statement = runParser (try selectParser <|> try showTablesParser <|> try showTableParser <|> try selectAllParser) statement >>= \case
+parseStatement statement = runParser ( try selectParser <|> 
+                                       try showTablesParser <|> 
+                                       try showTableParser <|> 
+                                       try selectAllParser <|>
+                                       try insertParser <|>
+                                       try updateParser <|>
+                                       try deleteParser ) statement >>= \case
     ("", parsedStatement) -> Right parsedStatement
     (rest, _) -> Left ("Unexpected input: " ++ rest)
 
