@@ -5,7 +5,7 @@
 
 module Lib2
   ( parseStatement,
-    executeStatement,
+    --executeStatement,
     ParsedStatement (..),
     Condition (..),
     Aggregate (..),
@@ -14,18 +14,20 @@ module Lib2
     showTable,
     applyWhereClauses,
     applyAggregates,
-    selectColumns
+    selectColumns,
+    Cname
   )
 where
 
 import DataFrame
 import Lib1
-import InMemoryTables (TableName, database)
-import Data.Char (toUpper, isSpace, isAlphaNum, isDigit, isLetter, isAscii, isAlpha)
+import InMemoryTables (TableName)
+import Data.Char (toUpper, isSpace, isAlphaNum, isDigit)
 import Data.List (isPrefixOf, elemIndex, partition, transpose)
 import Control.Applicative (many, some, Alternative(empty, (<|>)), optional)
 
 type ErrorMessage = String
+type Cname = String
 type Database = [(TableName, DataFrame)]
 
 data Condition
@@ -33,6 +35,7 @@ data Condition
     | Or Condition Condition
     | Equal String Value
     | BoolCondition String Bool
+    | JoinCondition (Maybe TableName, Cname) (Maybe TableName, Cname)
     deriving (Show, Eq)
 
 data Aggregate
@@ -45,15 +48,15 @@ data ParsedStatement
     = ShowTables
     | ShowTable TableName
     | SelectAll TableName
-    | Select { columns :: [(Aggregate, String)]
-             , tableName :: TableName
+    | Select { columns :: [(Aggregate, Maybe TableName, Cname)]
+             , tableNames :: [TableName]
              , whereClause :: Maybe Condition}
     | Insert { tableName :: TableName
              , row :: Row}
     | Delete { tableName :: TableName
              , whereClause :: Maybe Condition}
     | Update { tableName :: TableName
-             , values :: [(String, Value)]
+             , values :: [(Cname, Value)]
              , whereClause :: Maybe Condition}
     deriving (Show, Eq)
 
@@ -134,9 +137,20 @@ whereParser = do
 conditionParser :: Parser Condition
 conditionParser = do
     _ <- whitespace
-    columnName <- some (satisfy isAlphaNum)
+    joinConditionParser <|> do
+        columnName <- some (satisfy isAlphaNum)
+        _ <- optional whitespace
+        equalCondition columnName <|> boolCondition columnName
+
+-- table1.column1 = table2.column2
+joinConditionParser :: Parser Condition
+joinConditionParser = do
+    (table1, column1) <- parseColumnName
     _ <- optional whitespace
-    equalCondition columnName <|> boolCondition columnName
+    _ <- keyword "="
+    _ <- optional whitespace
+    (table2, column2) <- parseColumnName
+    return $ JoinCondition (table1, column1) (table2, column2)
 
 equalCondition :: String -> Parser Condition
 equalCondition columnName = do
@@ -152,20 +166,38 @@ boolCondition columnName = do
     return $ BoolCondition columnName value
 
 -- Column and Aggregate Parsing
-aggregateParser :: Parser (Aggregate, String)
+aggregateParser :: Parser (Aggregate, Maybe TableName, Cname)
 aggregateParser = do
     aggregate <- keyword "SUM(" <|> keyword "MAX(" <|> pure ""
-    cname <- some (satisfy isAlphaNum)
+    (tableName, cname) <- parseColumnName
     _ <- case aggregate of
         "" -> pure ""
         _ -> keyword ")"
-    return (case aggregate of
-        "SUM(" -> Sum
-        "MAX(" -> Max
-        _ -> None, cname)
+    return (parseAggregate aggregate, tableName, cname)
 
-columnsParser :: Parser [(Aggregate, String)]
-columnsParser = some (aggregateParser <* optional (keyword "," <* optional whitespace))
+parseColumnName :: Parser (Maybe TableName, Cname)
+parseColumnName = do
+    firstPart <- some alphaNumOrUnderscore
+    option <- optional (satisfy (== '.'))
+    case option of
+        Just _ -> do
+            secondPart <- some alphaNumOrUnderscore
+            return (Just firstPart, secondPart)
+        Nothing -> return (Nothing, firstPart)
+
+parseAggregate :: String -> Aggregate
+parseAggregate agg = case agg of
+    "SUM(" -> Sum
+    "MAX(" -> Max
+    _ -> None
+
+-- Four types of columns should be parsed:
+-- Aggregates
+-- Columns from a single table
+-- Columns from multiple tables (joined columns using the dot notation)
+-- Columns from multiple tables with aggregates
+columnsParser :: Parser [(Aggregate, Maybe TableName, Cname)]
+columnsParser = some (aggregateParser <* optional (optional whitespace <* keyword "," <* optional whitespace))
 
 -- Value Parsing
 -- Parse bools, ints, strings and nulls
@@ -216,7 +248,7 @@ selectAllParser = do
     _ <- whitespace
     _ <- keyword "FROM"
     _ <- whitespace
-    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    tableName <- some alphaNumOrUnderscore
     _ <- optional whitespace
     _ <- keyword ";"
     return $ SelectAll tableName
@@ -236,7 +268,7 @@ showTableParser = do
     _ <- whitespace
     _ <- keyword "TABLE"
     _ <- whitespace
-    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    tableName <- some alphaNumOrUnderscore
     _ <- optional whitespace
     _ <- keyword ";"
     return $ ShowTable tableName
@@ -249,18 +281,18 @@ selectParser = do
     _ <- whitespace
     _ <- keyword "FROM"
     _ <- whitespace
-    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    tableNames <- some (some alphaNumOrUnderscore <* optional (optional whitespace <* keyword "," <* optional whitespace))
     do 
         _ <- optional whitespace
         _ <- keyword ";"
-        return $ Select agr tableName Nothing
+        return $ Select agr tableNames Nothing
         <|> do
            _ <- whitespace
            _ <- keyword "WHERE"
            whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
            _ <- optional whitespace
            _ <- keyword ";"
-           return $ Select agr tableName whereClause
+           return $ Select agr tableNames whereClause
 
 -- WRITING OPERATION PARSERS
 insertParser :: Parser ParsedStatement
@@ -299,7 +331,7 @@ deleteParser = do
             _ <- keyword ";"
             return $ Delete tableName whereClause
 
-valueParser' :: Parser (String, Value)
+valueParser' :: Parser (Cname, Value)
 valueParser' = do
     _ <- optional whitespace
     columnName <- some (satisfy isAlphaNum)
@@ -338,17 +370,14 @@ parseStatement statement = runParser ( try selectParser <|>
     ("", parsedStatement) -> Right parsedStatement
     (rest, _) -> Left ("Unexpected input: " ++ rest)
 
--- Executes a parsed statemet. Produces a DataFrame. Uses
--- InMemoryTables.databases a source of data.
--- First the where clause is applied to the specified columns
--- Then the aggregate functions are applied to the columns specified in the select statement
--- The columns are then filtered to only include the columns specified in the select statement
-executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement ShowTables = showTables InMemoryTables.database
-executeStatement (ShowTable name) = showTable InMemoryTables.database name
-executeStatement (SelectAll name) = maybe (Left "Table not found") Right (findTableByName InMemoryTables.database name)
-executeStatement (Select columns tableName whereClause) = 
-    applyAggregates columns . selectColumns columns . applyWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
+-- Executes a parsed statemet. Produces a DataFrame.
+--executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
+--executeStatement ShowTables = showTables InMemoryTables.database
+--executeStatement (ShowTable name) = showTable InMemoryTables.database name
+--executeStatement (SelectAll name) = maybe (Left "Table not found") Right (findTableByName InMemoryTables.database name)
+--executeStatement (Select columns tableName whereClause) = 
+    --applyAggregates columns . selectColumns columns . applyWhereClauses whereClause . findTableByName InMemoryTables.database $ tableName
+--executeStatement _ = Left "Not implemented"
 
 -- SHOW TABLES and SHOW TABLE
 showTables :: Database -> Either ErrorMessage DataFrame
@@ -382,6 +411,23 @@ applyCondition columns (BoolCondition cname bool) values =
         (BoolValue b) -> b == bool
         NullValue -> False
         _ -> error "Non-boolean condition not implemented"
+applyCondition columns (Equal cname value) values =
+    let columnIdx = getIndex cname columns
+        value' = values !! columnIdx
+    in case value' of
+        (IntegerValue i) -> case value of
+            (IntegerValue i') -> i == i'
+            NullValue -> False
+            _ -> error "Invalid path"
+        (BoolValue b) -> case value of
+            (BoolValue b') -> b == b'
+            NullValue -> False
+            _ -> error "Invalid path"
+        (StringValue s) -> case value of
+            (StringValue s') -> s == s'
+            NullValue -> False
+            _ -> error "Invalid path"
+        NullValue -> False
  
  
 verifyWhereClauseTypes :: [Column] -> Condition -> Bool 
@@ -458,6 +504,11 @@ selectColumns criteria (Right (DataFrame columns rows))
     in if null errorMessage
        then Right (DataFrame filteredColumns filteredRows)
        else Left errorMessage
+
+-- Helper functions
+
+alphaNumOrUnderscore :: Parser Char
+alphaNumOrUnderscore = satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c))
 
 getIndex :: String -> [Column] -> Int
 getIndex name cols = case  name  `elemIndex` [cname | Column cname _ <- cols] of
