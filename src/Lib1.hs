@@ -54,7 +54,7 @@ validateDataFrame (DataFrame columns rows) =
 
     validateColumn :: Column -> [Value] -> Bool   -- Check if all values in a column have the correct type
     validateColumn (Column _ colType) =
-      all (`checkValueType` colType)
+      all (checkValueType colType)
 
     validateRowSize :: [Value] -> Bool    -- Check if all rows have the correct number of columns
     validateRowSize values = length values == length columns
@@ -88,12 +88,14 @@ renderDataFrameAsTable width (DataFrame cols rows) =
         colWidths = calculateColumnWidths adjustedWidth cols rows
         header = unwords ["|" ++ cname ++ replicate (w - length cname) ' ' | (Column cname _, w) <- zip cols colWidths] ++ "|"
         separator = unwords ["|" ++ replicate w '-' | w <- colWidths] ++ "|"
-    in header ++ "\n" ++ separator ++ "\n" ++
-       unlines [unwords ["|" ++ renderValue w v | (v, w) <- zip row colWidths] ++ "|" | row <- rows]
+        rowsData = if null rows
+                   then ""
+                   else unlines [unwords ["|" ++ renderValue w v | (v, w) <- zip row colWidths] ++ "|" | row <- rows]
+    in header ++ "\n" ++ separator ++ "\n" ++ rowsData
 
 calculateColumnWidths :: Integer -> [Column] -> [Row] -> [Int]
 calculateColumnWidths totalWidth cols rows =
-    let initialWidths = [max (length cname) (maximum (map (valueLength . flip (!!) idx) rows)) | (Column cname _, idx) <- zip cols [0..]]
+    let initialWidths = [max (length cname) (if null rows then 0 else maximum (map (valueLength . flip (!!) idx) rows)) | (Column cname _, idx) <- zip cols [0..]]
         adjustWidths ws
             | sum ws <= fromInteger totalWidth = ws
             | otherwise = adjustWidths (map (\w -> if w > 2 then w - 1 else w) ws)
