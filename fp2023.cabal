@@ -30,6 +30,7 @@ library
       Lib1
       Lib2
       Lib3
+      TestInterpreter
       Util
   other-modules:
       Paths_fp2023

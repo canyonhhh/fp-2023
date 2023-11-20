@@ -79,5 +79,12 @@ tableWithNulls =
       ]
   )
 
+tableWithNoRows :: (TableName, DataFrame)
+tableWithNoRows =
+  ( "norows",
+    DataFrame
+      [Column "flag" StringType, Column "value" BoolType] []
+  )
+
 database :: [(TableName, DataFrame)]
-database = [tableEmployees, tableInvalid1, tableInvalid2, tableLongStrings, tableWithNulls]
+database = [tableEmployees, tableInvalid1, tableInvalid2, tableLongStrings, tableWithNulls, tableWithNoRows]
