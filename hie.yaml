@@ -15,5 +15,8 @@ cradle:
     - path: "./app2/Paths_fp2023.hs"
       component: "fp2023:exe:fp2023-select-more"
 
+    - path: "./app3/Main.hs"
+      component: "fp2023:exe:fp2023-manipulate"
+
     - path: "./test"
       component: "fp2023:test:fp2023-test"

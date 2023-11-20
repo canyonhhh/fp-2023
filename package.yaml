@@ -27,6 +27,9 @@ dependencies:
 - vector
 - text
 - unordered-containers
+- containers
+- directory
+- filepath
 
 default-extensions:
 - ImportQualifiedPost
