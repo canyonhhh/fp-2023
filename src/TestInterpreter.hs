@@ -33,5 +33,3 @@ module TestInterpreter where
         --Lib3.UpdateTableDataFrame dataframe updates maybeCondition next ->
         --Lib3.ReportError err next ->
         --Lib3.GetTableNames next ->
-
-
