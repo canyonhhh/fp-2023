@@ -12,7 +12,8 @@ module Lib3
     FileContent,
     ErrorMessage,
     serializeDataFrame,
-    deserializeDataFrame
+    deserializeDataFrame,
+    dataFrameComplement
   )
 where
 
@@ -24,9 +25,9 @@ import Data.Yaml (decodeEither')
 import qualified Data.ByteString.Char8 as BS
 import Data.Char (toLower)
 
-type TableName = String
 type FileContent = String
 type ErrorMessage = String
+type TableName = String
 
 data ExecutionAlgebra next
   = LoadFile TableName (Either ErrorMessage FileContent -> next)
@@ -37,8 +38,8 @@ data ExecutionAlgebra next
   | FilterRows (Maybe Condition) (Either ErrorMessage DataFrame) (Either ErrorMessage DataFrame -> next)
   | JoinTables (Maybe Condition) (Either ErrorMessage DataFrame) (Either ErrorMessage DataFrame)(Either ErrorMessage DataFrame -> next)
   | InsertInto [(Cname, Value)] (Either ErrorMessage DataFrame) (Either ErrorMessage DataFrame -> next)
-  | AggregateData [(Aggregate, Cname)] (Either ErrorMessage DataFrame) (Either ErrorMessage DataFrame -> next)
-  | SelectColumns [(Aggregate, Cname)] (Either ErrorMessage DataFrame) (Either ErrorMessage DataFrame -> next)
+  | AggregateData [ColumnExpression] (Either ErrorMessage DataFrame) (Either ErrorMessage DataFrame -> next)
+  | SelectColumns [ColumnExpression] (Either ErrorMessage DataFrame) (Either ErrorMessage DataFrame -> next)
   | UpdateTableDataFrame [(Cname, Value)] (Maybe Condition) (Either ErrorMessage DataFrame)(Either ErrorMessage DataFrame -> next)
   | ReportError ErrorMessage next
   deriving Functor
@@ -63,10 +64,10 @@ parseDataFrame fileContent = liftF $ ParseDataFrame fileContent id
 filterRows :: Maybe Condition -> Either ErrorMessage DataFrame -> Execution (Either ErrorMessage DataFrame)
 filterRows cond df = liftF $ FilterRows cond df id
 
-aggregateData :: [(Aggregate, Cname)] -> Either ErrorMessage DataFrame -> Execution (Either ErrorMessage DataFrame)
+aggregateData :: [ColumnExpression] -> Either ErrorMessage DataFrame -> Execution (Either ErrorMessage DataFrame)
 aggregateData columns df = liftF $ AggregateData columns df id
 
-selectColumns :: [(Aggregate, Cname)] -> Either ErrorMessage DataFrame -> Execution (Either ErrorMessage DataFrame)
+selectColumns :: [ColumnExpression] -> Either ErrorMessage DataFrame -> Execution (Either ErrorMessage DataFrame)
 selectColumns columns df = liftF $ SelectColumns columns df id
 
 joinTables :: Maybe Condition -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame -> Execution (Either ErrorMessage DataFrame)
@@ -142,8 +143,8 @@ executeSql sql = case parseStatement sql of
             case length tableNames of
                 1 -> aggregateData (columns stmt) =<< Lib3.selectColumns (columns stmt) =<< filterRows whereClause =<< loadAndParse (head tableNames)
                 2 -> do
-                    df1 <- aggregateData (columns stmt) =<< filterRows whereClause =<< loadAndParse (head tableNames)
-                    df2 <- aggregateData (columns stmt) =<< filterRows whereClause =<< loadAndParse (last tableNames)
+                    df1 <- filterRows whereClause =<< loadAndParse (head tableNames)
+                    df2 <-  filterRows whereClause =<< loadAndParse (last tableNames)
                     joinedDf <- joinTables whereClause df1 df2
                     Lib3.selectColumns (columns stmt) joinedDf
                 _ -> return $ Left "Joining more than 2 tables is not supported"
@@ -161,6 +162,9 @@ executeSql sql = case parseStatement sql of
             let complementedDf = dataFrameComplement df filteredDf
             _ <- saveTableData tableName complementedDf
             return complementedDf
+        ShowTime -> do
+            time <- getTime
+            return $ Right $ DataFrame [Column "NOW()" StringType] [[StringValue $ show time]]
 
 -- function to get the rows from df1 which don't exist in df2
 dataFrameComplement :: Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame

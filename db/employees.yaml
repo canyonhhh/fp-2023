@@ -1,0 +1,16 @@
+columns:
+  - name: id
+    type: IntegerType
+  - name: name
+    type: StringType
+  - name: surname
+    type: StringType
+
+rows:
+  - id: 1
+    name: Vi
+    surname: Po
+  - id: 2
+    name: Ed
+    surname: Dl
+

@@ -54,7 +54,7 @@ validateDataFrame (DataFrame columns rows) =
 
     validateColumn :: Column -> [Value] -> Bool   -- Check if all values in a column have the correct type
     validateColumn (Column _ colType) =
-      all (checkValueType colType)
+      all (`checkValueType` colType)
 
     validateRowSize :: [Value] -> Bool    -- Check if all rows have the correct number of columns
     validateRowSize values = length values == length columns
