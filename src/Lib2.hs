@@ -23,7 +23,6 @@ module Lib2
 where
 
 import DataFrame
-import InMemoryTables
 import Data.Char (toUpper, isSpace, isAlphaNum, isDigit, isAscii)
 import Data.List (isPrefixOf, elemIndex, partition, transpose, find, findIndex)
 import Control.Applicative (many, some, Alternative(empty, (<|>)), optional)
@@ -31,6 +30,7 @@ import Data.Maybe (fromMaybe, mapMaybe)
 
 type ErrorMessage = String
 type Cname = String
+type TableName = String
 type Database = [(TableName, DataFrame)]
 
 data ColumnExpression
@@ -55,6 +55,7 @@ data Aggregate
 data ParsedStatement
     = ShowTables
     | ShowTable TableName
+    | ShowTime
     | SelectAll TableName
     | Select { columns :: [ColumnExpression]
              , tableNames :: [TableName]
@@ -355,8 +356,18 @@ updateParser = do
     _ <- keyword ";"
     return $ Update tableName values whereClause
 
+nowParser :: Parser ParsedStatement
+nowParser = do
+    _ <- keyword "SELECT"
+    _ <- whitespace
+    _ <- keyword "NOW()"
+    _ <- optional whitespace
+    _ <- keyword ";"
+    return ShowTime
+
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement statement = runParser ( try selectParser <|> 
+                                       try nowParser <|>
                                        try showTablesParser <|> 
                                        try showTableParser <|> 
                                        try selectAllParser <|>

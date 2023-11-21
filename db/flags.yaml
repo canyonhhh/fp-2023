@@ -1,0 +1,19 @@
+columns:
+  - name: flag
+    type: StringType
+  - name: value
+    type: BoolType
+
+rows:
+  - flag: c
+    value: false
+  - flag: c
+    value: false
+  - flag: c
+    value: false
+  - flag: f
+    value: true
+  - flag: a
+    value: true
+  - flag: a
+    value: true

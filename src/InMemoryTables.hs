@@ -79,6 +79,17 @@ tableWithNulls =
       ]
   )
 
+tableToJoin :: (TableName, DataFrame)
+tableToJoin =
+  ( "flags2",
+    DataFrame
+      [Column "another_flag" StringType, Column "other_value" BoolType]
+      [ [StringValue "z", BoolValue True],
+        [StringValue "b", BoolValue True], [StringValue "g", NullValue],
+        [StringValue "a", BoolValue False]
+      ]
+  )
+
 tableWithNoRows :: (TableName, DataFrame)
 tableWithNoRows =
   ( "norows",
@@ -87,4 +98,4 @@ tableWithNoRows =
   )
 
 database :: [(TableName, DataFrame)]
-database = [tableEmployees, tableInvalid1, tableInvalid2, tableLongStrings, tableWithNulls, tableWithNoRows]
+database = [tableEmployees, tableInvalid1, tableInvalid2, tableLongStrings, tableWithNulls, tableWithNoRows, tableToJoin]

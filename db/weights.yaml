@@ -1,0 +1,21 @@
+columns:
+  - name: item
+    type: IntegerType
+  - name: weight
+    type: IntegerType
+
+rows:
+  - item: 0
+    weight: 13
+  - item: 1
+    weight: 86
+  - item: 2
+    weight: 95
+  - item: 3
+    weight: 66
+  - item: 4
+    weight: 19
+  - item: 5
+    weight: 27
+  - item: 6
+    weight: 43
