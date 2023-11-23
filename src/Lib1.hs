@@ -19,10 +19,10 @@ type Database = [(TableName, DataFrame)]
 
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
-findTableByName :: Database -> TableName -> Maybe DataFrame
-findTableByName [] _ = Nothing  -- If the database is empty, return Nothing
+findTableByName :: Database -> TableName -> Either ErrorMessage DataFrame
+findTableByName [] _ = Left "Table not found"
 findTableByName ((tableName, dataFrame) : rest) name
-  | tableName == name = Just dataFrame  -- Case-sensitive comparison
+  | tableName == name = Right dataFrame  -- Case-sensitive comparison
   | otherwise = findTableByName rest name  -- Otherwise, search in the rest of the database
 
 
@@ -105,12 +105,14 @@ valueLength :: Value -> Int
 valueLength (IntegerValue v) = length (show v)
 valueLength (StringValue v) = length v
 valueLength (BoolValue v) = length (show v)
+valueLength (TimeValue v) = length (show v)
 valueLength NullValue = 4 -- "NULL"
 
 renderValue :: Int -> Value -> String
 renderValue width (IntegerValue v) = renderValue' width (show v)
 renderValue width (StringValue v) = renderValue' width v
 renderValue width (BoolValue v) = renderValue' width (show v)
+renderValue width (TimeValue v) = renderValue' width (show v)
 renderValue width NullValue = renderValue' width "NULL"
 
 renderValue' :: Int -> String -> String

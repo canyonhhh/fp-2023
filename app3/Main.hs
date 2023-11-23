@@ -26,6 +26,7 @@ import System.Console.Repline
     evalRepl,
   )
 import System.Console.Terminal.Size (Window, size, width)
+import qualified Lib3
 
 type Repl a = HaskelineT IO a
 
@@ -96,6 +97,8 @@ runStep (Lib3.SelectColumns aggregates dataframe next) = do
     return $ next $ Lib2.selectColumns aggregates dataframe
 runStep (Lib3.UpdateTableDataFrame dataframe updates maybeCondition next) = do
     return$ next $ updateTableDataFrame dataframe updates maybeCondition
+runStep (Lib3.ApplyTimeFunction columns time dataframe next) = do
+    return $ next $ Lib2.applyTimeFunction columns time dataframe
 runStep (Lib3.ReportError err next) = do
     return $ error ("shits broken: " ++ err)
 runStep (Lib3.GetTableNames next) = do

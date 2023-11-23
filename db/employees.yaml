@@ -3,14 +3,26 @@ columns:
     type: IntegerType
   - name: name
     type: StringType
-  - name: surname
+  - name: department
     type: StringType
+  - name: salary
+    type: IntegerType
+  - name: active
+    type: BoolType
 
 rows:
   - id: 1
-    name: Vi
-    surname: Po
+    name: Alice
+    department: Engineering
+    salary: 72000
+    active: true
   - id: 2
-    name: Ed
-    surname: Dl
-
+    name: Bob
+    department: Marketing
+    salary: 72000
+    active: false
+  - id: 3
+    name: Charlie
+    department: Sales
+    salary: 65000
+    active: true

@@ -25,6 +25,7 @@ data Value
   = IntegerValue Integer
   | StringValue String
   | BoolValue Bool
+  | TimeValue String
   | NullValue
   deriving (Show, Eq, Generic)
 

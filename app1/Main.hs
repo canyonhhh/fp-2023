@@ -43,7 +43,7 @@ cmd c = do
     cmd' :: Integer -> Either String String
     cmd' s = do
       table <- Lib1.parseSelectAllStatement c
-      df <- maybeToEither ("Table not found: " ++ table) (Lib1.findTableByName database table)
+      df <- Lib1.findTableByName database table
       _ <- Lib1.validateDataFrame df
       return $ Lib1.renderDataFrameAsTable s df
 

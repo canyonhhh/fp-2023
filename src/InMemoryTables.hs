@@ -6,6 +6,7 @@ module InMemoryTables
     tableWithNulls,
     database,
     TableName,
+    employees2
   )
 where
 
@@ -97,5 +98,12 @@ tableWithNoRows =
       [Column "flag" StringType, Column "value" BoolType] []
   )
 
+employees2 :: (TableName, DataFrame)
+employees2 = ("employees2", DataFrame [Column "id" IntegerType, Column "name" StringType, Column "department" StringType, Column "salary" IntegerType, Column "active" BoolType ] [[IntegerValue 1, StringValue "Alice", StringValue "Engineering", IntegerValue 70000, BoolValue True], [IntegerValue 2, StringValue "Bob", StringValue "Marketing", IntegerValue 60000, BoolValue False], [IntegerValue 3, StringValue "Charlie", StringValue "Sales", IntegerValue 65000, BoolValue True]])
+
+
+departments :: (TableName, DataFrame)
+departments= ("departments", DataFrame [ Column "dept_name" StringType, Column "manager" StringType ] [ [StringValue "Engineering", StringValue "Alice"], [StringValue "Marketing", StringValue "Evan"], [StringValue "Sales", StringValue "Charlie"]])
+
 database :: [(TableName, DataFrame)]
-database = [tableEmployees, tableInvalid1, tableInvalid2, tableLongStrings, tableWithNulls, tableWithNoRows, tableToJoin]
+database = [tableEmployees, employees2, departments, tableInvalid1, tableInvalid2, tableLongStrings, tableWithNulls, tableWithNoRows, tableToJoin]

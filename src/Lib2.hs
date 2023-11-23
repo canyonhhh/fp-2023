@@ -14,6 +14,7 @@ module Lib2
     applyWhereClauses,
     applyAggregates,
     selectColumns,
+    applyTimeFunction,
     Cname,
     Value (..),
     Column (..),
@@ -27,6 +28,7 @@ import Data.Char (toUpper, isSpace, isAlphaNum, isDigit, isAscii)
 import Data.List (isPrefixOf, elemIndex, partition, transpose, find, findIndex)
 import Control.Applicative (many, some, Alternative(empty, (<|>)), optional)
 import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Time(UTCTime)
 
 type ErrorMessage = String
 type Cname = String
@@ -56,7 +58,8 @@ data ParsedStatement
     = ShowTables
     | ShowTable TableName
     | ShowTime
-    | SelectAll TableName
+    | SelectAll { tableName :: TableName 
+                , whereClause :: Maybe Condition}
     | Select { columns :: [ColumnExpression]
              , tableNames :: [TableName]
              , whereClause :: Maybe Condition}
@@ -240,9 +243,17 @@ selectAllParser = do
     _ <- keyword "FROM"
     _ <- whitespace
     tableName <- some alphaNumOrUnderscore
-    _ <- optional whitespace
-    _ <- keyword ";"
-    return $ SelectAll tableName
+    do
+        _ <- optional whitespace
+        _ <- keyword ";"
+        return $ SelectAll tableName Nothing
+        <|> do
+           _ <- whitespace
+           _ <- keyword "WHERE"
+           whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
+           _ <- optional whitespace
+           _ <- keyword ";"
+           return $ SelectAll tableName whereClause
 
 showTablesParser :: Parser ParsedStatement
 showTablesParser  = do
@@ -527,7 +538,7 @@ selectColumns columnExpressions (Right (DataFrame columns rows)) =
     columnName :: ColumnExpression -> Maybe Cname
     columnName (SimpleColumn cname) = Just cname
     columnName (AggregateColumn _ cname) = Just cname
-    columnName (FunctionCall _) = Nothing
+    columnName (FunctionCall cname) = Just cname
 
     findColumnHeader :: [Column] -> Cname -> Column
     findColumnHeader cols cname = fromMaybe (Column cname StringType) $ find (\(Column name _) -> name == cname) cols
@@ -549,6 +560,18 @@ selectColumns columnExpressions (Right (DataFrame columns rows)) =
 
     columnExists :: Cname -> [Column] -> Bool
     columnExists cname = any (\(Column name _) -> name == cname)
+
+-- Apply time function
+applyTimeFunction :: [ColumnExpression] -> UTCTime -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
+applyTimeFunction _ _ (Left errorMsg) = Left errorMsg
+applyTimeFunction _ time (Right (DataFrame columns rows)) =
+    let timeColIndex = fromMaybe (-1) (findIndex (\(Column name _) -> name == "NOW()") columns)
+    in 
+        if timeColIndex == -1 then Right (DataFrame columns rows) 
+        else Right (DataFrame columns (map (insertAt timeColIndex (TimeValue (show time))) rows))
+    where
+        insertAt :: Int -> a -> [a] -> [a]
+        insertAt idx el xs = let (ys, zs) = splitAt idx xs in ys ++ [el] ++ zs
 
 -- Helper functions
 

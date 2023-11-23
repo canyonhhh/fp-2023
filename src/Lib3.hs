@@ -41,6 +41,7 @@ data ExecutionAlgebra next
   | AggregateData [ColumnExpression] (Either ErrorMessage DataFrame) (Either ErrorMessage DataFrame -> next)
   | SelectColumns [ColumnExpression] (Either ErrorMessage DataFrame) (Either ErrorMessage DataFrame -> next)
   | UpdateTableDataFrame [(Cname, Value)] (Maybe Condition) (Either ErrorMessage DataFrame)(Either ErrorMessage DataFrame -> next)
+  | ApplyTimeFunction [ColumnExpression] UTCTime (Either ErrorMessage DataFrame) (Either ErrorMessage DataFrame -> next)
   | ReportError ErrorMessage next
   deriving Functor
 
@@ -78,6 +79,9 @@ insertInto values df = liftF $ InsertInto values df id
 
 updateTable :: [(Cname, Value)] -> Maybe Condition -> Either ErrorMessage DataFrame -> Execution (Either ErrorMessage DataFrame)
 updateTable values cond df = liftF $ UpdateTableDataFrame values cond df id
+
+applyTimeFunction :: [ColumnExpression] -> UTCTime -> Either ErrorMessage DataFrame -> Execution (Either ErrorMessage DataFrame)
+applyTimeFunction columns time df = liftF $ ApplyTimeFunction columns time df id
 
 reportError :: ErrorMessage -> Execution ()
 reportError msg = liftF $ ReportError msg ()
@@ -131,22 +135,21 @@ executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = case parseStatement sql of
     Left errMsg -> return $ Left errMsg
     Right stmt -> case stmt of
-        -- returns the columns and data types of the table (without the rows)
         Lib2.ShowTable tableName -> do
             df <- loadAndParse tableName
             case df of
                 Left errMsg -> return $ Left errMsg
                 Right (DataFrame columns _) -> return $ Right $ DataFrame [Column "Field" StringType, Column "Type" StringType] [[StringValue cname, StringValue (show ctype)] | Column cname ctype <- columns]
         Lib2.ShowTables -> Right . DataFrame [Column "table_name" StringType] . map (\ name -> [StringValue name]) <$> getTableNames
-        SelectAll tableName -> loadAndParse tableName
+        SelectAll tableName whereClause -> filterRows whereClause =<< loadAndParse tableName
         Select columms tableNames whereClause -> do
+            time <- getTime
             case length tableNames of
-                1 -> aggregateData (columns stmt) =<< Lib3.selectColumns (columns stmt) =<< filterRows whereClause =<< loadAndParse (head tableNames)
+                1 -> Lib3.applyTimeFunction (columns stmt) time =<< aggregateData (columns stmt) =<< Lib3.selectColumns (columns stmt) =<< filterRows whereClause =<< loadAndParse (head tableNames)
                 2 -> do
                     df1 <- filterRows whereClause =<< loadAndParse (head tableNames)
                     df2 <-  filterRows whereClause =<< loadAndParse (last tableNames)
-                    joinedDf <- joinTables whereClause df1 df2
-                    Lib3.selectColumns (columns stmt) joinedDf
+                    Lib3.applyTimeFunction (columns stmt) time =<< Lib3.selectColumns (columns stmt) =<< joinTables whereClause df1 df2
                 _ -> return $ Left "Joining more than 2 tables is not supported"
         Insert tableName values -> do
             df <- insertInto values =<< loadAndParse tableName

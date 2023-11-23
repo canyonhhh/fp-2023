@@ -79,12 +79,14 @@ insertInto row (Right (DataFrame columns rows)) =
             (Column _ BoolType, BoolValue _) -> True
             _ -> False
 
+
 -- Find the row in the DataFrame that matches the condition and update it
 updateTableDataFrame :: [(Lib2.Cname, Value)] -> Maybe Lib2.Condition -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
 updateTableDataFrame _ _ (Left errMsg) = Left errMsg
 updateTableDataFrame updates maybeCondition (Right (DataFrame columns rows)) =
-    if allColumnsExist updates columns then Right $ DataFrame columns (map (updateRowIfNeeded updates maybeCondition columns) rows)
-    else Left "One or more columns not found."
+    if allColumnsExist updates columns && allTypesMatch updates columns
+    then Right $ DataFrame columns (map (updateRowIfNeeded updates maybeCondition columns) rows)
+    else Left "One or more columns not found or type mismatch."
 
 updateRowIfNeeded :: [(Lib2.Cname, Value)] -> Maybe Lib2.Condition -> [Column] -> [Value] -> [Value]
 updateRowIfNeeded updates maybeCondition columns row =
@@ -102,3 +104,15 @@ updateRow updates columns row =
 allColumnsExist :: [(Lib2.Cname, Value)] -> [Column] -> Bool
 allColumnsExist updates columns =
     all (\(cname, _) -> any (\(Column colName _) -> cname == colName) columns) updates
+
+allTypesMatch :: [(Lib2.Cname, Value)] -> [Column] -> Bool
+allTypesMatch updates columns =
+    all (\(cname, value) -> any (\(Column colName colType) -> cname == colName && valueMatchesType value colType) columns) updates
+
+valueMatchesType :: Value -> ColumnType -> Bool
+valueMatchesType (IntegerValue _) IntegerType = True
+valueMatchesType (StringValue _) StringType = True
+valueMatchesType (BoolValue _) BoolType = True
+valueMatchesType NullValue _ = True  -- Assuming NullValue is compatible with any type
+valueMatchesType _ _ = False
+
