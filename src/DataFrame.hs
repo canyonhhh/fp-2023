@@ -39,7 +39,7 @@ data DataFrame = DataFrame [Column] [Row]
 instance A.FromJSON DataFrame where
     parseJSON = A.withObject "DataFrame" $ \v -> do
         columns <- v A..: K.fromString "columns" >>= mapM parseColumn
-        rows <- (v A..:? K.fromString "rows" A..!= []) >>= mapM (parseRow columns)  -- Adjusted line
+        rows <- (v A..:? K.fromString "rows" A..!= []) >>= mapM (parseRow columns)
         return $ DataFrame columns rows
       where
         parseColumn = A.withObject "Column" $ \v -> do

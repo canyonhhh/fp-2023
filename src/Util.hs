@@ -113,6 +113,6 @@ valueMatchesType :: Value -> ColumnType -> Bool
 valueMatchesType (IntegerValue _) IntegerType = True
 valueMatchesType (StringValue _) StringType = True
 valueMatchesType (BoolValue _) BoolType = True
-valueMatchesType NullValue _ = True  -- Assuming NullValue is compatible with any type
+valueMatchesType NullValue _ = True
 valueMatchesType _ _ = False
 
