@@ -14,10 +14,8 @@ import System.FilePath (takeBaseName, takeExtension)
 import System.IO.Error (catchIOError)
 import Data.List qualified as L
 import Lib1 qualified
-import Lib2 qualified
 import Lib3
 import DataFrame
-import Util
 import System.Console.Repline
   ( CompleterStyle (Word),
     ExitDecision (Exit),
@@ -26,7 +24,6 @@ import System.Console.Repline
     evalRepl,
   )
 import System.Console.Terminal.Size (Window, size, width)
-import qualified Lib3
 
 type Repl a = HaskelineT IO a
 
@@ -75,8 +72,6 @@ runStep :: Lib3.ExecutionAlgebra a -> IO a
 runStep (Lib3.LoadFile tableName next) = do
     fileResult <- readFileIO tableName
     return $ next fileResult
-runStep (Lib3.ParseDataFrame fileContent next) =
-    return $ next (Lib3.deserializeDataFrame fileContent)
 runStep (Lib3.GetTime next) =
     do next <$> getCurrentTime
 runStep (Lib3.SaveTableData tableName dataframe next) = 
@@ -85,23 +80,7 @@ runStep (Lib3.SaveTableData tableName dataframe next) =
         Right serializedData -> do
             writeFileIO tableName serializedData
             return $ next $ Right ()
-runStep (Lib3.FilterRows maybeCondition dataframe next) = do
-    return $ next $ Lib2.applyWhereClauses maybeCondition dataframe
-runStep (Lib3.JoinTables maybeCondition df1 df2 next) = do
-    return $ next $ joinTables maybeCondition df1 df2
-runStep (Lib3.InsertInto values dataframe next) = do
-    return $ next $ insertInto values dataframe
-runStep (Lib3.AggregateData aggregates dataframe next) = do
-    return $ next $ Lib2.applyAggregates aggregates dataframe
-runStep (Lib3.SelectColumns aggregates dataframe next) = do
-    return $ next $ Lib2.selectColumns aggregates dataframe
-runStep (Lib3.UpdateTableDataFrame dataframe updates maybeCondition next) = do
-    return$ next $ updateTableDataFrame dataframe updates maybeCondition
-runStep (Lib3.ApplyTimeFunction columns time dataframe next) = do
-    return $ next $ Lib2.applyTimeFunction columns time dataframe
-runStep (Lib3.ReportError err next) = do
-    return $ error ("shits broken: " ++ err)
-runStep (Lib3.GetTableNames next) = do
+runStep (Lib3.GetTableNames next) = 
     next <$> getTableNames
 
 reportError :: String -> DataFrame

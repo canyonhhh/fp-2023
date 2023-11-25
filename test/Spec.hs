@@ -3,11 +3,10 @@ import Data.Maybe ()
 import InMemoryTables qualified as D
 import Lib1
 import Lib2
-import Lib3
 import TestInterpreter
 import DataFrame
 import Test.Hspec
-import Util
+import Lib3
 import Data.IORef (newIORef)
 
 main :: IO ()
@@ -293,12 +292,12 @@ main = hspec $ do
         dataFrameComplement (Left "Error in df1") (Left "Error in df2") `shouldSatisfy`
           isLeft
   
-    describe "Util.matchCondition" $ do
+    describe "Lib3.matchCondition" $ do
       it "matches Equal condition correctly" $ do
         let condition = Lib2.Equal "id" (IntegerValue 2)
         let columns = [Column "id" IntegerType, Column "name" StringType]
         let row = [IntegerValue 2, StringValue "Alice"]
-        matchCondition condition columns row `shouldBe` True
+        Lib3.matchCondition condition columns row `shouldBe` True
     
       it "does not match incorrect Equal condition" $ do
         let condition = Lib2.Equal "id" (IntegerValue 3)
@@ -330,7 +329,7 @@ main = hspec $ do
         let row = [IntegerValue 2, StringValue "Alice", BoolValue True]
         matchCondition condition columns row `shouldBe` False
       
-    describe "Util.joinTables" $ do
+    describe "Lib3.joinTables" $ do
       it "joins two tables correctly without condition" $ do
         let df1 = Right (DataFrame [Column "id" IntegerType] [[IntegerValue 1]])
         let df2 = Right (DataFrame [Column "name" StringType] [[StringValue "Alice"]])
@@ -346,7 +345,7 @@ main = hspec $ do
         let df2 = Right (DataFrame [Column "name" StringType] [[StringValue "Alice"]])
         joinTables (Just (Lib2.JoinCondition "nonexistent" "id")) df1 df2 `shouldSatisfy` isLeft
   
-    describe "Util.insertInto" $ do
+    describe "Lib3.insertInto" $ do
       it "inserts row into DataFrame correctly" $ do
         let df = Right (DataFrame [Column "id" IntegerType, Column "name" StringType] [[IntegerValue 1, StringValue "Alice"]])
         insertInto [("id", IntegerValue 2), ("name", StringValue "Bob")] df `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType] [[IntegerValue 1, StringValue "Alice"], [IntegerValue 2, StringValue "Bob"]])
@@ -359,7 +358,7 @@ main = hspec $ do
         let df = Right (DataFrame [Column "id" IntegerType] [[IntegerValue 1]])
         insertInto [("id", StringValue "2")] df `shouldSatisfy` isLeft
   
-    describe "Util.updateTableDataFrame" $ do
+    describe "Lib3.updateTableDataFrame" $ do
       it "updates rows in DataFrame correctly" $ do
         let df = Right (DataFrame [Column "id" IntegerType, Column "name" StringType] [[IntegerValue 1, StringValue "Alice"], [IntegerValue 2, StringValue "Bob"]])
         updateTableDataFrame [("name", StringValue "Updated")] (Just (Lib2.Equal "id" (IntegerValue 1))) df `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType] [[IntegerValue 1, StringValue "Updated"], [IntegerValue 2, StringValue "Bob"]])
