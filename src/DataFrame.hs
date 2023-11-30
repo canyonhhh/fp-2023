@@ -15,11 +15,13 @@ data ColumnType
   deriving (Show, Eq, Generic, Read)
 
 instance A.FromJSON ColumnType
+instance A.ToJSON ColumnType
 
 data Column = Column String ColumnType
   deriving (Show, Eq, Generic)
 
 instance A.FromJSON Column
+instance A.ToJSON Column
 
 data Value
   = IntegerValue Integer
@@ -30,6 +32,7 @@ data Value
   deriving (Show, Eq, Generic)
 
 instance A.FromJSON DataFrame.Value
+instance A.ToJSON DataFrame.Value
 
 type Row = [DataFrame.Value]
 

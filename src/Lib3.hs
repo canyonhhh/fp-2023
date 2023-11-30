@@ -41,6 +41,8 @@ data ExecutionAlgebra next
     | SaveTableData TableName (Either ErrorMessage DataFrame) (Either ErrorMessage () -> next)
     | GetTableNames ([TableName] -> next)
     | GetTime (UTCTime -> next)
+    | CreateTable TableName [Column] (Either ErrorMessage DataFrame -> next)
+    | DropTable TableName (Either ErrorMessage () -> next)
     deriving Functor
 
 type Execution = Free ExecutionAlgebra
@@ -57,6 +59,12 @@ getTime = liftF $ GetTime id
 getTableNames :: Execution [TableName]
 getTableNames = liftF $ GetTableNames id
 
+createTable :: TableName -> [Column] -> Execution (Either ErrorMessage DataFrame)
+createTable name columns = liftF $ CreateTable name columns id
+
+dropTable :: TableName -> Execution (Either ErrorMessage ())
+dropTable name = liftF $ DropTable name id
+
 -- Placeholder function to execute SQL commands
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = case parseStatement sql of
@@ -67,19 +75,19 @@ executeSql sql = case parseStatement sql of
             return $ showTable df
         Lib2.ShowTables -> do
             Right . DataFrame [Column "table_name" StringType] . map (\ name -> [StringValue name]) <$> getTableNames
-        Lib2.SelectAll tableName whereClause Nothing -> do
+        Lib2.SelectAll tableName whereClause order -> do
             df <- loadAndParse tableName
-            return $ applyWhereClauses whereClause df
-        Lib2.Select columns tableNames whereClause Nothing -> do
+            return $ applyOrder order $ applyWhereClauses whereClause df
+        Lib2.Select columns tableNames whereClause order -> do
             time <- getTime
             case tableNames of
                 [tableName] -> do
                     df <- loadAndParse tableName
-                    return $ processSelect columns whereClause time df
+                    return $ applyOrder order $ processSelect columns whereClause time df
                 [table1, table2] -> do
                     df1 <- loadAndParse table1
                     df2 <- loadAndParse table2
-                    return $ processJoinSelect columns whereClause time df1 df2
+                    return $ applyOrder order $ processJoinSelect columns whereClause time df1 df2
                 _ -> return $ Left "Joining more than 2 tables is not supported"
         Lib2.Insert tableName values -> do
             df <- loadAndParse tableName
@@ -100,6 +108,13 @@ executeSql sql = case parseStatement sql of
         Lib2.ShowTime -> do
             time <- getTime
             return $ Right $ DataFrame [Column "NOW()" StringType] [[StringValue $ show time]]
+        Lib2.Create tableName columns -> do
+            Lib3.createTable tableName columns
+        Lib2.Drop tableName -> do
+            r <- Lib3.dropTable tableName
+            return $ case r of
+                Left errMsg -> Left errMsg
+                Right _ -> Right $ DataFrame [Column "DROP" StringType] [[StringValue "SUCCESS"]]
 
 -- Function to serialize a DataFrame to YAML
 serializeDataFrame :: Either ErrorMessage DataFrame -> Either ErrorMessage String

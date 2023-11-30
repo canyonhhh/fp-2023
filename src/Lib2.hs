@@ -2,6 +2,8 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# OPTIONS_GHC -Wno-partial-fields #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Lib2
   ( parseStatement,
@@ -19,6 +21,8 @@ module Lib2
     Value (..),
     Column (..),
     DataFrame (..),
+    applyOrder,
+    Order (..),
     ColumnExpression (..)
   )
 where
@@ -30,6 +34,8 @@ import Control.Applicative (many, some, Alternative(empty, (<|>)), optional)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Time(UTCTime)
 import Data.Function (on)
+import GHC.Generics (Generic)
+import Data.Aeson qualified as A
 
 type ErrorMessage = String
 type Cname = String
@@ -40,29 +46,44 @@ data ColumnExpression
     = SimpleColumn Cname
     | AggregateColumn Aggregate Cname
     | FunctionCall String
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+
+instance A.FromJSON ColumnExpression
+instance A.ToJSON ColumnExpression
 
 data Condition
     = And Condition Condition
     | Equal Cname Value
     | BoolCondition Cname Bool
     | JoinCondition Cname Cname
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+
+instance A.FromJSON Condition
+instance A.ToJSON Condition
 
 data Aggregate
     = Max 
     | Sum 
     | None
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+
+instance A.FromJSON Aggregate
+instance A.ToJSON Aggregate
 
 data Order
     = Asc
     | Desc
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+
+instance A.FromJSON Order
+instance A.ToJSON Order
 
 data OrderBy
     = OrderBy Cname Order
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+
+instance A.FromJSON OrderBy
+instance A.ToJSON OrderBy
 
 data ParsedStatement
     = ShowTables
@@ -85,7 +106,10 @@ data ParsedStatement
     | Drop   { tableName :: TableName}
     | Create { tableName :: TableName
              , colHeader :: [Column]}
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+
+instance A.FromJSON ParsedStatement
+instance A.ToJSON ParsedStatement
 
 -- Parser
 
@@ -459,7 +483,9 @@ parseStatement statement = runParser ( try selectParser <|>
                                        try selectAllParser <|>
                                        try insertParser <|>
                                        try updateParser <|>
-                                       try deleteParser ) statement >>= \case
+                                       try deleteParser <|>
+                                       try dropParser <|>
+                                       try createParser ) statement >>= \case
     ("", parsedStatement) -> Right parsedStatement
     (rest, _) -> Left ("Unexpected input: " ++ rest)
 

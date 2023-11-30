@@ -18,5 +18,8 @@ cradle:
     - path: "./app3/Main.hs"
       component: "fp2023:exe:fp2023-manipulate"
 
+    - path: "./app4/Main.hs"
+      component: "fp2023:exe:fp2023-server"
+
     - path: "./test"
       component: "fp2023:test:fp2023-test"
