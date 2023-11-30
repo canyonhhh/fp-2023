@@ -44,8 +44,10 @@ library
     , bytestring
     , containers
     , directory
+    , either
     , filepath
     , free
+    , mtl
     , text
     , time
     , transformers
@@ -69,10 +71,12 @@ executable fp2023-manipulate
     , bytestring
     , containers
     , directory
+    , either
     , extra
     , filepath
     , fp2023
     , free
+    , mtl
     , repline
     , terminal-size
     , text
@@ -97,9 +101,11 @@ executable fp2023-select-all
     , bytestring
     , containers
     , directory
+    , either
     , extra
     , filepath
     , fp2023
+    , mtl
     , repline
     , terminal-size
     , text
@@ -123,9 +129,11 @@ executable fp2023-select-more
     , bytestring
     , containers
     , directory
+    , either
     , extra
     , filepath
     , fp2023
+    , mtl
     , repline
     , terminal-size
     , text
@@ -150,9 +158,11 @@ test-suite fp2023-test
     , bytestring
     , containers
     , directory
+    , either
     , filepath
     , fp2023
     , hspec
+    , mtl
     , text
     , unordered-containers
     , vector

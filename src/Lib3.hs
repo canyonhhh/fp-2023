@@ -57,6 +57,50 @@ getTime = liftF $ GetTime id
 getTableNames :: Execution [TableName]
 getTableNames = liftF $ GetTableNames id
 
+-- Placeholder function to execute SQL commands
+executeSql :: String -> Execution (Either ErrorMessage DataFrame)
+executeSql sql = case parseStatement sql of
+    Left errMsg -> return $ Left errMsg
+    Right stmt -> case stmt of
+        Lib2.ShowTable tableName -> do
+            df <- loadAndParse tableName
+            return $ showTable df
+        Lib2.ShowTables -> do
+            Right . DataFrame [Column "table_name" StringType] . map (\ name -> [StringValue name]) <$> getTableNames
+        Lib2.SelectAll tableName whereClause Nothing -> do
+            df <- loadAndParse tableName
+            return $ applyWhereClauses whereClause df
+        Lib2.Select columns tableNames whereClause Nothing -> do
+            time <- getTime
+            case tableNames of
+                [tableName] -> do
+                    df <- loadAndParse tableName
+                    return $ processSelect columns whereClause time df
+                [table1, table2] -> do
+                    df1 <- loadAndParse table1
+                    df2 <- loadAndParse table2
+                    return $ processJoinSelect columns whereClause time df1 df2
+                _ -> return $ Left "Joining more than 2 tables is not supported"
+        Lib2.Insert tableName values -> do
+            df <- loadAndParse tableName
+            let updatedDf = insertInto values df
+            _ <- saveTableData tableName updatedDf
+            return updatedDf
+        Lib2.Update tableName values whereClause -> do
+            df <- loadAndParse tableName
+            let updatedDf = updateTableDataFrame values whereClause df
+            _ <- saveTableData tableName updatedDf
+            return updatedDf
+        Lib2.Delete tableName whereClause -> do
+            df <- loadAndParse tableName
+            let filteredDf = applyWhereClauses whereClause df
+                complementedDf = dataFrameComplement df filteredDf
+            _ <- saveTableData tableName complementedDf
+            return complementedDf
+        Lib2.ShowTime -> do
+            time <- getTime
+            return $ Right $ DataFrame [Column "NOW()" StringType] [[StringValue $ show time]]
+
 -- Function to serialize a DataFrame to YAML
 serializeDataFrame :: Either ErrorMessage DataFrame -> Either ErrorMessage String
 serializeDataFrame (Left errMsg) = Left errMsg
@@ -95,50 +139,6 @@ deserializeDataFrame (Left errMsg) = Left errMsg
 deserializeDataFrame (Right bs) = case decodeEither' . BS.pack $ bs of
     Left err -> Left (show err)
     Right df -> Right df
-
--- Placeholder function to execute SQL commands
-executeSql :: String -> Execution (Either ErrorMessage DataFrame)
-executeSql sql = case parseStatement sql of
-    Left errMsg -> return $ Left errMsg
-    Right stmt -> case stmt of
-        Lib2.ShowTable tableName -> do
-            df <- loadAndParse tableName
-            return $ showTable df
-        Lib2.ShowTables -> do
-            Right . DataFrame [Column "table_name" StringType] . map (\ name -> [StringValue name]) <$> getTableNames
-        Lib2.SelectAll tableName whereClause -> do
-            df <- loadAndParse tableName
-            return $ applyWhereClauses whereClause df
-        Lib2.Select columns tableNames whereClause -> do
-            time <- getTime
-            case tableNames of
-                [tableName] -> do
-                    df <- loadAndParse tableName
-                    return $ processSelect columns whereClause time df
-                [table1, table2] -> do
-                    df1 <- loadAndParse table1
-                    df2 <- loadAndParse table2
-                    return $ processJoinSelect columns whereClause time df1 df2
-                _ -> return $ Left "Joining more than 2 tables is not supported"
-        Lib2.Insert tableName values -> do
-            df <- loadAndParse tableName
-            let updatedDf = insertInto values df
-            _ <- saveTableData tableName updatedDf
-            return updatedDf
-        Lib2.Update tableName values whereClause -> do
-            df <- loadAndParse tableName
-            let updatedDf = updateTableDataFrame values whereClause df
-            _ <- saveTableData tableName updatedDf
-            return updatedDf
-        Lib2.Delete tableName whereClause -> do
-            df <- loadAndParse tableName
-            let filteredDf = applyWhereClauses whereClause df
-                complementedDf = dataFrameComplement df filteredDf
-            _ <- saveTableData tableName complementedDf
-            return complementedDf
-        Lib2.ShowTime -> do
-            time <- getTime
-            return $ Right $ DataFrame [Column "NOW()" StringType] [[StringValue $ show time]]
 
 loadAndParse :: TableName -> Execution (Either ErrorMessage DataFrame)
 loadAndParse tableName = do

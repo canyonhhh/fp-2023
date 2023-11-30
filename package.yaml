@@ -30,6 +30,8 @@ dependencies:
 - containers
 - directory
 - filepath
+- mtl
+- either
 
 default-extensions:
 - ImportQualifiedPost

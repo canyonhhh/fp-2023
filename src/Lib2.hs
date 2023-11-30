@@ -25,10 +25,11 @@ where
 
 import DataFrame
 import Data.Char (toUpper, isSpace, isAlphaNum, isDigit, isAscii)
-import Data.List (isPrefixOf, elemIndex, partition, transpose, find, findIndex)
+import Data.List (isPrefixOf, elemIndex, partition, transpose, find, findIndex, sortBy)
 import Control.Applicative (many, some, Alternative(empty, (<|>)), optional)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Time(UTCTime)
+import Data.Function (on)
 
 type ErrorMessage = String
 type Cname = String
@@ -54,15 +55,26 @@ data Aggregate
     | None
     deriving (Show, Eq)
 
+data Order
+    = Asc
+    | Desc
+    deriving (Show, Eq)
+
+data OrderBy
+    = OrderBy Cname Order
+    deriving (Show, Eq)
+
 data ParsedStatement
     = ShowTables
     | ShowTable TableName
     | ShowTime
     | SelectAll { tableName :: TableName 
-                , whereClause :: Maybe Condition}
+                , whereClause :: Maybe Condition
+                , orderBy :: Maybe [OrderBy]}
     | Select { columns :: [ColumnExpression]
              , tableNames :: [TableName]
-             , whereClause :: Maybe Condition}
+             , whereClause :: Maybe Condition
+             , orderBy :: Maybe [OrderBy]}
     | Insert { tableName :: TableName
              , values :: [(Cname, Value)]}
     | Delete { tableName :: TableName
@@ -70,6 +82,9 @@ data ParsedStatement
     | Update { tableName :: TableName
              , values :: [(Cname, Value)]
              , whereClause :: Maybe Condition}
+    | Drop   { tableName :: TableName}
+    | Create { tableName :: TableName
+             , colHeader :: [Column]}
     deriving (Show, Eq)
 
 -- Parser
@@ -233,6 +248,25 @@ nullParser = do
     _ <- keyword "NULL"
     return NullValue
 
+orderParser :: Parser [OrderBy]
+orderParser = do
+    _ <- whitespace
+    _ <- keyword "ORDER"
+    _ <- whitespace
+    _ <- keyword "BY"
+    _ <- whitespace
+    firstOrder <- orderByParser
+    restOrders <- many (optional whitespace *> keyword "," *> orderByParser)
+    return $ firstOrder : restOrders
+
+orderByParser :: Parser OrderBy
+orderByParser = do
+    _ <- optional whitespace
+    cname <- some alphaNumOrUnderscore
+    _ <- optional whitespace
+    order <- (keyword "ASC" *> pure Asc) <|> (keyword "DESC" *> pure Desc) <|> pure Asc
+    return $ OrderBy cname order
+
 -- Main parsers
 selectAllParser :: Parser ParsedStatement
 selectAllParser = do
@@ -244,16 +278,18 @@ selectAllParser = do
     _ <- whitespace
     tableName <- some alphaNumOrUnderscore
     do
+        order <- optional orderParser
         _ <- optional whitespace
         _ <- keyword ";"
-        return $ SelectAll tableName Nothing
+        return $ SelectAll tableName Nothing order
         <|> do
            _ <- whitespace
            _ <- keyword "WHERE"
            whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
+           order <- optional orderParser
            _ <- optional whitespace
            _ <- keyword ";"
-           return $ SelectAll tableName whereClause
+           return $ SelectAll tableName whereClause order
 
 showTablesParser :: Parser ParsedStatement
 showTablesParser  = do
@@ -286,15 +322,19 @@ selectParser = do
     tableNames <- some (some alphaNumOrUnderscore <* optional (optional whitespace <* keyword "," <* optional whitespace))
     do 
         _ <- optional whitespace
+        order <- optional orderParser
+        _ <- optional whitespace
         _ <- keyword ";"
-        return $ Select agr tableNames Nothing
+        return $ Select agr tableNames Nothing order
         <|> do
            _ <- whitespace
            _ <- keyword "WHERE"
            whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
            _ <- optional whitespace
+           order <- optional orderParser
+           _ <- optional whitespace
            _ <- keyword ";"
-           return $ Select agr tableNames whereClause
+           return $ Select agr tableNames whereClause order
 
 -- WRITING OPERATION PARSERS
 insertParser :: Parser ParsedStatement
@@ -338,6 +378,41 @@ deleteParser = do
             _ <- optional whitespace
             _ <- keyword ";"
             return $ Delete tableName whereClause
+
+dropParser :: Parser ParsedStatement
+dropParser = do
+    _ <- keyword "DROP"
+    _ <- whitespace
+    _ <- keyword "TABLE"
+    _ <- whitespace
+    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    _ <- optional whitespace
+    _ <- keyword ";"
+    return $ Drop tableName
+
+createParser :: Parser ParsedStatement
+createParser = do
+    _ <- keyword "CREATE"
+    _ <- whitespace
+    _ <- keyword "TABLE"
+    _ <- whitespace
+    tableName <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    _ <- whitespace
+    _ <- keyword "("
+    _ <- optional whitespace
+    colHeader <- some (columnParser <* optional (optional whitespace <* keyword "," <* optional whitespace))
+    _ <- optional whitespace
+    _ <- keyword ")"
+    _ <- optional whitespace
+    _ <- keyword ";"
+    return $ Create tableName colHeader
+
+columnParser :: Parser Column
+columnParser = do
+    cname <- some (satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c)))
+    _ <- optional whitespace
+    ctype <- keyword "INTEGER" *> pure IntegerType <|> keyword "STRING" *> pure StringType <|> keyword "BOOL" *> pure BoolType
+    return $ Column cname ctype
 
 valueParser' :: Parser (Cname, Value)
 valueParser' = do
@@ -573,7 +648,30 @@ applyTimeFunction _ time (Right (DataFrame columns rows)) =
         insertAt :: Int -> a -> [a] -> [a]
         insertAt idx el xs = let (ys, zs) = splitAt idx xs in ys ++ [el] ++ zs
 
+applyOrder :: Maybe [OrderBy] -> Either ErrorMessage DataFrame -> Either ErrorMessage DataFrame
+applyOrder Nothing df = df
+applyOrder _ (Left errorMsg) = Left errorMsg
+applyOrder (Just orderBys) (Right (DataFrame columns rows)) =
+    Right . DataFrame columns $ foldl applySingleOrder rows orderBys
+    where
+        applySingleOrder :: [[Value]] -> OrderBy -> [[Value]]
+        applySingleOrder r (OrderBy cname ord) =
+            let colIdx = fromMaybe (error $ "Column not found: " ++ cname) 
+                                   (findIndex (\(Column name _) -> name == cname) columns)
+                compareFunc = case ord of
+                    Asc -> compareValue
+                    Desc -> flip compareValue
+                sortedRows = sortBy (compareFunc `on` (!! colIdx)) r
+            in sortedRows
+
 -- Helper functions
+compareValue :: Value -> Value -> Ordering
+compareValue (IntegerValue a) (IntegerValue b) = compare a b
+compareValue (StringValue a) (StringValue b) = compare a b
+compareValue (BoolValue a) (BoolValue b) = compare a b
+compareValue (TimeValue a) (TimeValue b) = compare a b
+compareValue NullValue NullValue = EQ
+compareValue _ _ = error "Comparison between different Value types not supported (Invalid path))"
 
 alphaNumOrUnderscore :: Parser Char
 alphaNumOrUnderscore = satisfy (\c -> isAlphaNum c || c == '_' && not (isSpace c))
