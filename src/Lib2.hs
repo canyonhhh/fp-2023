@@ -4,6 +4,10 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Lib2
   ( parseStatement,
@@ -23,6 +27,7 @@ module Lib2
     DataFrame (..),
     applyOrder,
     Order (..),
+    OrderBy (..),
     ColumnExpression (..)
   )
 where
@@ -30,12 +35,15 @@ where
 import DataFrame
 import Data.Char (toUpper, isSpace, isAlphaNum, isDigit, isAscii)
 import Data.List (isPrefixOf, elemIndex, partition, transpose, find, findIndex, sortBy)
-import Control.Applicative (many, some, Alternative(empty, (<|>)), optional)
+import Control.Applicative (many, some, Alternative, Alternative(empty, (<|>)), optional)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Time(UTCTime)
 import Data.Function (on)
 import GHC.Generics (Generic)
 import Data.Aeson qualified as A
+import Control.Monad.State
+import Control.Monad.Except
+import Control.Monad.Identity
 
 type ErrorMessage = String
 type Cname = String
@@ -113,70 +121,63 @@ instance A.ToJSON ParsedStatement
 
 -- Parser
 
-newtype Parser a = Parser {
-    runParser :: String -> Either ErrorMessage (String, a)
-}
+newtype Parser a = Parser { runParser :: ExceptT String (State String) a }
+
+
+instance MonadError String Parser where
+    throwError = Parser . throwError
+    catchError (Parser p) handler = Parser $ catchError p (runParser . handler)
+
+instance MonadState String Parser where
+    get = Parser get
+    put = Parser . put
 
 instance Functor Parser where
-  fmap f functor = Parser $ \inp ->
-    case runParser functor inp of
-        Left e -> Left e
-        Right (l, a) -> Right (l, f a)
+    fmap f (Parser p) = Parser (fmap f p)
 
 instance Applicative Parser where
-  pure a = Parser $ \inp -> Right (inp, a)
-  ff <*> fa = Parser $ \in1 ->
-    case runParser ff in1 of
-        Left e1 -> Left e1
-        Right (in2, f) -> case runParser fa in2 of
-            Left e2 -> Left e2
-            Right (in3, a) -> Right (in3, f a)
+    pure = Parser . pure
+    (Parser f) <*> (Parser a) = Parser (f <*> a)
 
 instance Monad Parser where
-  ma >>= mf = Parser $ \inp1 ->
-    case runParser ma inp1 of
-        Left e1 -> Left e1
-        Right (inp2, a) -> case runParser (mf a ) inp2 of
-            Left e2 -> Left e2
-            Right (inp3, r) -> Right (inp3, r)
+    (Parser a) >>= f = Parser $ a >>= runParser . f
 
 instance Alternative Parser where
-    empty = Parser $ \_ -> Left "Error"
-    p1 <|> p2 = Parser $ \inp ->
-        case runParser p1 inp of
-            Right a1 -> Right a1
-            Left _ -> case runParser p2 inp of
-                Right a2 -> Right a2
-                Left err -> Left err
+    empty = Parser empty
+    (Parser p1) <|> (Parser p2) = Parser $ ExceptT $ StateT $ \s -> do
+        let res = runStateT (runExceptT p1) s
+        case runIdentity res of
+            (Left _, _) -> runStateT (runExceptT p2) s  -- Run p2 with original state
+            (Right val, s') -> return (Right val, s')  -- Return result if p1 succeeds
 
-parserFail :: ErrorMessage -> Parser a
-parserFail msg = Parser $ \_ -> Left msg
+parserFail :: String -> Parser a
+parserFail msg = throwError msg
 
 keyword :: String -> Parser String
-keyword kw = Parser $ \inp ->
-    if map toUpper kw `isPrefixOf` map toUpper inp
-    then Right (drop (length kw) inp, kw)
-    else Left ("Expected keyword " ++ kw)
-
-try :: Parser a -> Parser a
-try p = Parser $ \inp ->
-    case runParser p inp of
-        Left _ -> Left inp
-        result -> result
+keyword kw = do
+    input <- get
+    let kwUpper = map toUpper kw
+        inputUpper = map toUpper input
+    if kwUpper `isPrefixOf` inputUpper
+        then put (drop (length kw) input) >> return kw
+        else throwError $ "Expected keyword " ++ kw
 
 satisfy :: (Char -> Bool) -> Parser Char
-satisfy f = Parser $ \case
-        [] -> Left "Unexpected end of input"
+satisfy f = do
+    input <- get
+    case input of
         (x:xs) -> if f x
-                  then Right (xs, x)
-                  else Left ("Unexpected character " ++ [x])
+                  then put xs >> return x
+                  else throwError $ "Unexpected character " ++ [x]
+        [] -> throwError "Unexpected end of input"
 
 whitespace :: Parser String
-whitespace = Parser $ \inp ->
-    let (whitespaces, rest) = span isSpace inp
-    in case whitespaces of
-       [] -> Left "Expected whitespace"
-       _ -> Right (rest, whitespaces)
+whitespace = do
+    input <- get
+    let (spaces, rest) = span isSpace input
+    case spaces of
+        [] -> throwError "Expected whitespace"
+        _ -> put rest >> return spaces
 
 -- Where Clause Parsing
 whereParser :: Parser Condition
@@ -190,7 +191,7 @@ conditionParser = do
     _ <- whitespace
     cname <- some alphaNumOrUnderscore
     _ <- optional whitespace
-    try(equalCondition cname) <|> try(boolCondition cname) <|> joinConditionParser cname
+    (equalCondition cname) <|> (boolCondition cname) <|> joinConditionParser cname
 
 joinConditionParser :: Cname -> Parser Condition
 joinConditionParser cname1= do
@@ -241,7 +242,7 @@ columnsParser = some (aggregateParser <* optional (optional whitespace <* keywor
 valueParser :: Parser Value
 valueParser = do
     _ <- optional whitespace
-    value <- try boolParser <|> try intParser <|> try stringParser <|> try nullParser <|> parserFail "Invalid value"
+    value <- boolParser <|> intParser <|> stringParser <|> nullParser <|> parserFail "Invalid value"
     _ <- optional whitespace
     _ <- optional $ keyword ","
     _ <- optional whitespace
@@ -250,10 +251,10 @@ valueParser = do
 boolParser :: Parser Value
 boolParser = do
     value <- keyword "TRUE" <|> keyword "FALSE"
-    return $ case value of
-        "TRUE" -> BoolValue True
-        "FALSE" -> BoolValue False
-        _ -> error "Invalid path"
+    case value of
+        "TRUE"  -> return $ BoolValue True
+        "FALSE" -> return $ BoolValue False
+        _       -> throwError "Invalid boolean value"
 
 intParser :: Parser Value
 intParser = do
@@ -309,7 +310,7 @@ selectAllParser = do
         <|> do
            _ <- whitespace
            _ <- keyword "WHERE"
-           whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
+           whereClause <- Just <$> whereParser <|> throwError "Malformed where clause"
            order <- optional orderParser
            _ <- optional whitespace
            _ <- keyword ";"
@@ -345,7 +346,6 @@ selectParser = do
     _ <- whitespace
     tableNames <- some (some alphaNumOrUnderscore <* optional (optional whitespace <* keyword "," <* optional whitespace))
     do 
-        _ <- optional whitespace
         order <- optional orderParser
         _ <- optional whitespace
         _ <- keyword ";"
@@ -354,7 +354,6 @@ selectParser = do
            _ <- whitespace
            _ <- keyword "WHERE"
            whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
-           _ <- optional whitespace
            order <- optional orderParser
            _ <- optional whitespace
            _ <- keyword ";"
@@ -398,7 +397,7 @@ deleteParser = do
         <|> do
             _ <- whitespace
             _ <- keyword "WHERE"
-            whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
+            whereClause <- Just <$> whereParser <|> throwError "Malformed where clause"
             _ <- optional whitespace
             _ <- keyword ";"
             return $ Delete tableName whereClause
@@ -461,7 +460,7 @@ updateParser = do
     values <- some valueParser' <* keyword "," <|> some valueParser'
     _ <- optional whitespace
     _ <- keyword "WHERE"
-    whereClause <- Just <$> whereParser <|> parserFail "Malformed where clause"
+    whereClause <- Just <$> whereParser <|> throwError "Malformed where clause"
     _ <- optional whitespace
     _ <- keyword ";"
     return $ Update tableName values whereClause
@@ -476,18 +475,24 @@ nowParser = do
     return ShowTime
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement statement = runParser ( try selectParser <|> 
-                                       try nowParser <|>
-                                       try showTablesParser <|> 
-                                       try showTableParser <|> 
-                                       try selectAllParser <|>
-                                       try insertParser <|>
-                                       try updateParser <|>
-                                       try deleteParser <|>
-                                       try dropParser <|>
-                                       try createParser ) statement >>= \case
-    ("", parsedStatement) -> Right parsedStatement
-    (rest, _) -> Left ("Unexpected input: " ++ rest)
+parseStatement statement = 
+    case runState (runExceptT (runParser parser)) statement of
+        (Left err, _) -> Left err
+        (Right parsedStatement, remaining) -> 
+            if null remaining 
+            then Right parsedStatement 
+            else Left $ "Unexpected input: " ++ remaining
+  where
+    parser = selectParser <|> 
+             nowParser <|>
+             showTablesParser <|> 
+             showTableParser <|> 
+             selectAllParser <|>
+             insertParser <|>
+             updateParser <|>
+             deleteParser <|>
+             dropParser <|>
+             createParser
 
 -- Executes a parsed statemet. Produces a DataFrame.
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
@@ -678,17 +683,19 @@ applyOrder :: Maybe [OrderBy] -> Either ErrorMessage DataFrame -> Either ErrorMe
 applyOrder Nothing df = df
 applyOrder _ (Left errorMsg) = Left errorMsg
 applyOrder (Just orderBys) (Right (DataFrame columns rows)) =
-    Right . DataFrame columns $ foldl applySingleOrder rows orderBys
+    Right . DataFrame columns $ sortBy compositeCompareFunc rows
     where
-        applySingleOrder :: [[Value]] -> OrderBy -> [[Value]]
-        applySingleOrder r (OrderBy cname ord) =
+        compositeCompareFunc :: [Value] -> [Value] -> Ordering
+        compositeCompareFunc row1 row2 = foldl (\acc orderBy -> if acc == EQ then compareBy orderBy row1 row2 else acc) EQ orderBys
+
+        compareBy :: OrderBy -> [Value] -> [Value] -> Ordering
+        compareBy (OrderBy cname ord) row1 row2 =
             let colIdx = fromMaybe (error $ "Column not found: " ++ cname) 
                                    (findIndex (\(Column name _) -> name == cname) columns)
                 compareFunc = case ord of
                     Asc -> compareValue
                     Desc -> flip compareValue
-                sortedRows = sortBy (compareFunc `on` (!! colIdx)) r
-            in sortedRows
+            in compareFunc (row1 !! colIdx) (row2 !! colIdx)
 
 -- Helper functions
 compareValue :: Value -> Value -> Ordering

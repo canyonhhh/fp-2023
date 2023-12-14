@@ -1,0 +1,11 @@
+columns:
+- name: name
+  type: StringType
+- name: price
+  type: IntegerType
+- name: edible
+  type: BoolType
+rows:
+- edible: true
+  name: brazilian
+  price: 100

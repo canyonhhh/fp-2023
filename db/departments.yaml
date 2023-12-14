@@ -1,13 +1,12 @@
 columns:
-  - name: dept_name
-    type: StringType
-  - name: manager
-    type: StringType
-
+- name: dept_name
+  type: StringType
+- name: manager
+  type: StringType
 rows:
-  - dept_name: Engineering
-    manager: Alice
-  - dept_name: Marketing
-    manager: Evan
-  - dept_name: Sales
-    manager: Charlie
+- dept_name: Engineering
+  manager: Alice
+- dept_name: Marketing
+  manager: Evan
+- dept_name: Sales
+  manager: Charlie

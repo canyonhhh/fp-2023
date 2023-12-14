@@ -1,11 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Main where
 
 import Control.Monad.IO.Class (MonadIO (liftIO))
+import GHC.Generics (Generic)
 import Network.Wreq
 import Control.Lens
-import Data.Aeson (encode, eitherDecode)
+import Data.Aeson (FromJSON(..), encode, eitherDecode, decode, withObject, (.:), (.:?))
+import Control.Applicative ((<|>))
 import qualified Data.ByteString.Lazy as BL
 import qualified Lib1
 import qualified Lib2
@@ -15,6 +18,7 @@ import System.Console.Terminal.Size (Window, size, width)
 import Data.List as L
 
 type Repl a = HaskelineT IO a
+type ErrorMessage = String
 
 -- Initialize REPL
 ini :: Repl ()
@@ -40,26 +44,39 @@ completer n = do
 cmd :: String -> Repl ()
 cmd input = do
   s <- terminalWidth <$> liftIO size
-  case Lib2.parseStatement input of
-    Left err -> liftIO $ putStrLn $ "Parse Error: " ++ err
-    Right parsedQuery -> do
-      result <- liftIO $ sendQuery parsedQuery
-      case result of
-        Left err -> liftIO $ putStrLn $ "Error: " ++ err
-        Right df -> liftIO $ putStrLn $ Lib1.renderDataFrameAsTable s df
+  result <- liftIO $ sendQuery input
+  case result of
+    Left err -> liftIO $ putStrLn $ "Error: " ++ err
+    Right df -> do
+        liftIO $ putStrLn $ Lib1.renderDataFrameAsTable s df
   where
     terminalWidth :: Integral n => Maybe (Window n) -> n
     terminalWidth = maybe 80 width
 
--- Send query to server and get response
-sendQuery :: Lib2.ParsedStatement -> IO (Either String DataFrame)
+data ServerResponse = ServerResponse
+    { responseRight :: Maybe DataFrame
+    , responseLeft :: Maybe String
+    } deriving (Show)
+
+instance FromJSON ServerResponse where
+    parseJSON = withObject "ServerResponse" $ \v ->
+        ServerResponse <$> v .:? "Right"
+                       <*> v .:? "Left"
+
+sendQuery :: String -> IO (Either ErrorMessage DataFrame)
 sendQuery query = do
     let jsonPayload = encode query
     let headersList = [("Content-Type", "application/json")]
-    response <- postWith (defaults & Network.Wreq.headers .~ headersList) "http://localhost:3000/query" jsonPayload
-    return $ eitherDecode (response ^. responseBody)
+    httpResponse <- postWith (defaults & Network.Wreq.headers .~ headersList) "http://localhost:3000/query" jsonPayload
+    let decodedResponse = eitherDecode (httpResponse ^. responseBody) :: Either String ServerResponse
+    case decodedResponse of
+        Left decodeErr -> return $ Left decodeErr
+        Right serverResp ->
+            case (responseRight serverResp, responseLeft serverResp) of
+                (Just df, _) -> return $ Right df
+                (_, Just errMsg) -> return $ Left errMsg
+                _ -> return $ Left "Invalid server response"
 
 -- Main function
 main :: IO ()
 main = evalRepl (const $ pure ">>> ") cmd [] Nothing Nothing (Word completer) ini final
-

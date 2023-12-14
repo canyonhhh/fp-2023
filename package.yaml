@@ -36,6 +36,7 @@ dependencies:
 - wreq
 - lens
 - lens-aeson
+- stm
 
 default-extensions:
 - ImportQualifiedPost
@@ -99,7 +100,7 @@ executables:
     - time
   fp2023-server:
     main:                Server.hs
-    source-dirs:         server
+    source-dirs:         app4/server
     ghc-options:
     - -threaded
     - -rtsopts
@@ -114,7 +115,7 @@ executables:
     - scotty
   fp2023-client:
     main:                Client.hs
-    source-dirs:         client
+    source-dirs:         app4/client
     ghc-options:
     - -threaded
     - -rtsopts
@@ -129,6 +130,7 @@ executables:
     - wreq
     - lens
     - lens-aeson
+    - aeson
 
 tests:
   fp2023-test:

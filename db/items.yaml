@@ -1,24 +1,23 @@
 columns:
-  - name: id
-    type: IntegerType
-  - name: rarity
-    type: IntegerType
-  - name: name
-    type: StringType
-
+- name: id
+  type: IntegerType
+- name: rarity
+  type: IntegerType
+- name: name
+  type: StringType
 rows:
-  - id: 0
-    rarity: 66
-    name: elderberry
-  - id: 1
-    rarity: 4
-    name: apple
-  - id: 2
-    rarity: 80
-    name: larry
-  - id: 3
-    rarity: 10
-    name: date
-  - id: 4
-    rarity: 54
-    name: strawberry
+- id: 0
+  name: elderberry
+  rarity: 66
+- id: 1
+  name: apple
+  rarity: 4
+- id: 2
+  name: larry
+  rarity: 80
+- id: 3
+  name: date
+  rarity: 10
+- id: 4
+  name: strawberry
+  rarity: 54

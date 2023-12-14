@@ -51,6 +51,7 @@ library
     , lens-aeson
     , mtl
     , scotty
+    , stm
     , text
     , time
     , transformers
@@ -65,7 +66,7 @@ executable fp2023-client
   other-modules:
       Paths_fp2023
   hs-source-dirs:
-      client
+      app4/client
   default-extensions:
       ImportQualifiedPost
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
@@ -85,6 +86,7 @@ executable fp2023-client
     , mtl
     , repline
     , scotty
+    , stm
     , terminal-size
     , text
     , time
@@ -119,6 +121,7 @@ executable fp2023-manipulate
     , mtl
     , repline
     , scotty
+    , stm
     , terminal-size
     , text
     , time
@@ -152,6 +155,7 @@ executable fp2023-select-all
     , mtl
     , repline
     , scotty
+    , stm
     , terminal-size
     , text
     , unordered-containers
@@ -184,6 +188,7 @@ executable fp2023-select-more
     , mtl
     , repline
     , scotty
+    , stm
     , terminal-size
     , text
     , unordered-containers
@@ -197,7 +202,7 @@ executable fp2023-server
   other-modules:
       Paths_fp2023
   hs-source-dirs:
-      server
+      app4/server
   default-extensions:
       ImportQualifiedPost
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
@@ -217,6 +222,7 @@ executable fp2023-server
     , mtl
     , repline
     , scotty
+    , stm
     , terminal-size
     , text
     , time
@@ -250,6 +256,7 @@ test-suite fp2023-test
     , lens-aeson
     , mtl
     , scotty
+    , stm
     , text
     , unordered-containers
     , vector

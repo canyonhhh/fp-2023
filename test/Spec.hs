@@ -67,47 +67,47 @@ main = hspec $ do
     describe "Lib2.parseStatement" $ do
       it "handles basic SELECT statement" $ do
         parseStatement "SELECT id FROM employees;" `shouldBe`
-          Right (Select [SimpleColumn "id"] ["employees"] Nothing)
+          Right (Select [SimpleColumn "id"] ["employees"] Nothing Nothing)
   
       it "handles multiple column SELECT" $ do
         parseStatement "SELECT name, surname FROM employees;" `shouldBe` 
-          Right (Select [SimpleColumn "name", SimpleColumn "surname"] ["employees"] Nothing)
+          Right (Select [SimpleColumn "name", SimpleColumn "surname"] ["employees"] Nothing Nothing)
   
       it "parses SUM aggregate function" $ do
         parseStatement "SELECT SUM(id) FROM employees;" `shouldBe` 
-          Right (Select [AggregateColumn Sum "id"] ["employees"] Nothing)
+          Right (Select [AggregateColumn Sum "id"] ["employees"] Nothing Nothing)
   
       it "parses MAX aggregate function" $ do
         parseStatement "SELECT MAX(name) FROM employees;" `shouldBe` 
-          Right (Select [AggregateColumn Max "name"] ["employees"] Nothing)
+          Right (Select [AggregateColumn Max "name"] ["employees"] Nothing Nothing)
   
       it "parses WHERE clause with AND" $ do
         parseStatement "SELECT id FROM employees WHERE name IS TRUE AND surname IS FALSE;" `shouldBe` 
-          Right (Select [SimpleColumn "id"] ["employees"] (Just (And (BoolCondition "name" True) (BoolCondition "surname" False))))
+          Right (Select [SimpleColumn "id"] ["employees"] (Just (And (BoolCondition "name" True) (BoolCondition "surname" False) )) Nothing)
   
       it "parses WHERE clause with single condition" $ do
         parseStatement "SELECT id FROM employees WHERE name IS TRUE;" `shouldBe` 
-          Right (Select [SimpleColumn "id"] ["employees"] (Just (BoolCondition "name" True)))
+          Right (Select [SimpleColumn "id"] ["employees"] (Just (BoolCondition "name" True)) Nothing)
   
       it "handles case-insensitive SELECT keyword" $ do
         parseStatement "sEleCt name FROM employees;" `shouldBe` Right 
-          (Select [SimpleColumn "name"] ["employees"] Nothing)
+          (Select [SimpleColumn "name"] ["employees"] Nothing Nothing)
           
       it "handles case-insensitive FROM keyword" $ do
         parseStatement "SELECT name frOm employees;" `shouldBe` 
-          Right (Select [SimpleColumn "name"] ["employees"] Nothing)
+          Right (Select [SimpleColumn "name"] ["employees"] Nothing Nothing)
   
       it "handles case-insensitive WHERE keyword" $ do
         parseStatement "SELECT name FROM employees wHeRe name IS TRUE;" `shouldBe` 
-          Right (Select [SimpleColumn "name"] ["employees"] (Just (BoolCondition "name" True)))
+          Right (Select [SimpleColumn "name"] ["employees"] (Just (BoolCondition "name" True)) Nothing)
   
       it "handles case-sensitive table names" $ do
         parseStatement "SELECT name FROM Employees;" `shouldBe` 
-          Right (Select [SimpleColumn "name"] ["Employees"] Nothing)
+          Right (Select [SimpleColumn "name"] ["Employees"] Nothing Nothing)
   
       it "handles case-sensitive column names" $ do
         parseStatement "SELECT NAME FROM employees;" `shouldBe` 
-          Right (Select [SimpleColumn "NAME"] ["employees"] Nothing)
+          Right (Select [SimpleColumn "NAME"] ["employees"] Nothing Nothing)
   
       it "parses SHOW TABLES statement" $ do
         parseStatement "SHOW TABLES;" `shouldBe` 
@@ -120,8 +120,68 @@ main = hspec $ do
       it "returns error for invalid statement" $ do
         parseStatement "INVALID STATEMENT" `shouldSatisfy` 
           isLeft
+    
+      it "parses CREATE TABLE statement" $ do
+        parseStatement "CREATE TABLE employees (id INTEGER, name STRING);" `shouldBe` 
+          Right (Create "employees" [Column "id" IntegerType, Column "name" StringType])
+
+      it "parses incomplete CREATE TABLE statement" $ do
+        parseStatement "CREATE TABLE incomplete_table (id, name STRING, active BOOL);" `shouldSatisfy`
+          isLeft
+
+      it "parses CREATE TABLE statement with invalid column type" $ do
+        parseStatement "CREATE TABLE invalid_table (id IntegerType, name InvalidType);" `shouldSatisfy`
+          isLeft
+      
+      it "parses CREATE TABLE statement with no columns" $ do
+        parseStatement "CREATE TABLE empty_table;" `shouldSatisfy`
+          isLeft
   
-    --describe "Lib2.showTables" $ do
+      it "parses DELETE statement" $ do
+        parseStatement "DELETE FROM employees WHERE id = 1;" `shouldBe`
+          Right (Delete "employees" (Just (Equal "id" (IntegerValue 1))))
+
+      it "parses DELETE statement with no WHERE clause" $ do
+        parseStatement "DELETE FROM employees;" `shouldBe`
+          Right (Delete "employees" Nothing)
+      
+      it "parses DELETE statement with complex WHERE clause" $ do
+        parseStatement "DELETE FROM employees WHERE id = 1 AND name = 'Alice';" `shouldBe`
+          Right (Delete "employees" (Just (And (Equal "id" (IntegerValue 1)) (Equal "name" (StringValue "Alice")))))
+
+      it "parses basic ORDER BY statement" $ do
+        parseStatement "SELECT * FROM employees ORDER BY id;" `shouldBe`
+          Right (SelectAll {tableName = "employees", whereClause = Nothing, orderBy = Just [OrderBy "id" Asc]})
+
+      it "parses ORDER BY statement with multiple columns" $ do
+        parseStatement "SELECT * FROM employees ORDER BY id, name;" `shouldBe`
+          Right (SelectAll {tableName = "employees", whereClause = Nothing, orderBy = Just [OrderBy "id" Asc, OrderBy "name" Asc]})
+
+      it "parses ORDER BY statement with invalid direction" $ do
+        parseStatement "SELECT * FROM employees ORDER BY id UPWARDS, name ASC;" `shouldSatisfy`
+          isLeft
+
+      it "parses basic INSERT statement" $ do
+        parseStatement "INSERT INTO employees (id, name, department, salary, active) VALUES (4, 'Diana', 'HR', 68000, TRUE);" `shouldBe`
+          Right (Insert "employees" [("id", IntegerValue 4), ("name", StringValue "Diana"), ("department", StringValue "HR"), ("salary", IntegerValue 68000), ("active", BoolValue True)])
+
+      it "parses basic UPDATE statement" $ do
+        parseStatement "UPDATE employees SET salary = 72000 WHERE id = 1;" `shouldBe`
+          Right (Update "employees" [("salary", IntegerValue 72000)] (Just (Equal "id" (IntegerValue 1))))
+
+      it "parses UPDATE statement with complex WHERE clause" $ do
+        parseStatement "UPDATE employees SET salary = 72000 WHERE id = 1 AND name = 'Alice';" `shouldBe`
+          Right (Update "employees" [("salary", IntegerValue 72000)] (Just (And (Equal "id" (IntegerValue 1)) (Equal "name" (StringValue "Alice")))))
+     
+      it "parses basic JOIN statement" $ do
+        parseStatement "SELECT name, department, manager FROM employees, departments WHERE department = dept_name;" `shouldBe`
+          Right (Select [SimpleColumn "name", SimpleColumn "department", SimpleColumn "manager"] ["employees", "departments"] (Just (JoinCondition "department" "dept_name")) Nothing)
+
+      it "parses DROP TABLE statement" $ do
+        parseStatement "DROP TABLE employees;" `shouldBe`
+          Right (Drop "employees")
+
+    --describe "Lib2.showTables" $ do 
       --it "returns table names" $ do
         --showTables D.database `shouldBe`
           --Right (DataFrame [Column "Tables_in_database" StringType] [[StringValue "employees"],[StringValue "invalid1"],[StringValue "invalid2"],[StringValue "long_strings"],[StringValue "flags"]])
@@ -370,101 +430,168 @@ main = hspec $ do
       it "returns error if column for update not found" $ do
         let df = Right (DataFrame [Column "id" IntegerType] [[IntegerValue 1]])
         updateTableDataFrame [("nonexistent", StringValue "Updated")] Nothing df `shouldSatisfy` isLeft
+
   describe "Integration tests" $ do
     let mockDB = D.database
+
     it "handles SELECT * FROM employees;" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT * FROM employees2;")
       result `shouldBe` (Right . snd $ D.employees2)
+
     it "handles SELECT name FROM employees WHERE active IS TRUE;" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT * FROM employees2 WHERE active IS TRUE;")
       result `shouldBe` Right (DataFrame [ Column "id" IntegerType, Column "name" StringType, Column "department" StringType, Column "salary" IntegerType, Column "active" BoolType ] [ [IntegerValue 1, StringValue "Alice", StringValue "Engineering", IntegerValue 70000, BoolValue True], [IntegerValue 3, StringValue "Charlie", StringValue "Sales", IntegerValue 65000, BoolValue True]]) 
+
     it "handles SELECT name, active, id FROM employees WHERE active IS TRUE;" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT name, active, id FROM employees2 WHERE active IS TRUE;")
       result `shouldBe` Right (DataFrame [Column "name" StringType, Column "active" BoolType, Column "id" IntegerType] [[StringValue "Alice", BoolValue True, IntegerValue 1], [StringValue "Charlie", BoolValue True, IntegerValue 3]]) 
+
     it "handles SELECT SUM(salary) FROM employees WHERE department = 'Engineering';" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT SUM(salary) FROM employees2 WHERE department = 'Engineering';")
       result `shouldBe` Right (DataFrame [Column "Sum(salary)" IntegerType] [[IntegerValue 70000]])
+
     it "handles SELECT MAX(salary) FROM employees;" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT MAX(salary) FROM employees2;")
       result `shouldBe` Right (DataFrame [Column "Max(salary)" IntegerType] [[IntegerValue 70000]])
+
     it "handles SHOW TABLE employees2" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SHOW TABLE employees2;")
       result `shouldBe` Right (DataFrame [Column "Field" StringType,Column "Type" StringType] [[StringValue "id",StringValue "IntegerType"],[StringValue "name",StringValue "StringType"],[StringValue "department",StringValue "StringType"],[StringValue "salary",StringValue "IntegerType"],[StringValue "active",StringValue "BoolType"]])
+
     it "handles INSERT INTO employees (id, name, department, salary, active) VALUES (4, 'Diana', 'HR', 68000, TRUE);" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "INSERT INTO employees2 (id, name, department, salary, active) VALUES (4, 'Diana', 'HR', 68000, TRUE);")
       result `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "department" StringType, Column "salary" IntegerType, Column "active" BoolType] [[IntegerValue 1, StringValue "Alice", StringValue "Engineering", IntegerValue 70000, BoolValue True], [IntegerValue 2, StringValue "Bob", StringValue "Marketing", IntegerValue 60000, BoolValue False], [IntegerValue 3, StringValue "Charlie", StringValue "Sales", IntegerValue 65000, BoolValue True], [IntegerValue 4, StringValue "Diana", StringValue "HR", IntegerValue 68000, BoolValue True]])
+
     it "handles UPDATE employees SET salary = 72000 WHERE id = 1;" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "UPDATE employees2 SET salary = 72000 WHERE id = 1;")
       result `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "department" StringType, Column "salary" IntegerType, Column "active" BoolType] [[IntegerValue 1, StringValue "Alice", StringValue "Engineering", IntegerValue 72000, BoolValue True], [IntegerValue 2, StringValue "Bob", StringValue "Marketing", IntegerValue 60000, BoolValue False], [IntegerValue 3, StringValue "Charlie", StringValue "Sales", IntegerValue 65000, BoolValue True]])
+
     it "handles DELETE FROM employees WHERE active IS FALSE;" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "DELETE FROM employees2 WHERE active IS FALSE;")
       result `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "department" StringType, Column "salary" IntegerType, Column "active" BoolType] [[IntegerValue 1, StringValue "Alice", StringValue "Engineering", IntegerValue 70000, BoolValue True], [IntegerValue 3, StringValue "Charlie", StringValue "Sales", IntegerValue 65000, BoolValue True]])
+
     it "handles DELETE FROM employees WHERE active IS FALSE;" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "DELETE FROM employees2 WHERE active IS FALSE;")
       result `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "department" StringType, Column "salary" IntegerType, Column "active" BoolType] [[IntegerValue 1, StringValue "Alice", StringValue "Engineering", IntegerValue 70000, BoolValue True], [IntegerValue 3, StringValue "Charlie", StringValue "Sales", IntegerValue 65000, BoolValue True]])
+
     it "handles SELECT NOW();" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT NOW();")
       result `shouldSatisfy` isRight
+
     it "handles SELECT name, department, manager FROM employees, departments WHERE department = dept_name;" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT name, department, manager FROM employees2, departments WHERE department = dept_name;")
       result `shouldBe` Right (DataFrame [Column "name" StringType, Column "department" StringType, Column "manager" StringType] [[StringValue "Alice", StringValue "Engineering", StringValue "Alice"], [StringValue "Bob", StringValue "Marketing", StringValue "Evan"], [StringValue "Charlie", StringValue "Sales", StringValue "Charlie"]])
+
     it "handles DELETE FROM employees;" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "DELETE FROM employees2;")
       result `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "department" StringType, Column "salary" IntegerType, Column "active" BoolType] [])
+
     it "handles missing FROM" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT id, name;")
       result `shouldSatisfy` isLeft
+      
     it "handles incorrect aggregate function" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT SUM(name) FROM employees2;")
       result `shouldSatisfy` isLeft
+
     it "handles mismatched quotes" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT name FROM employees2 WHERE name = 'Alice;")
       result `shouldSatisfy` isLeft
+
     it "handles missing closing parenthesis" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT MAX(name FROM employees2;")
       result `shouldSatisfy` isLeft
+
     it "handles non-existent column" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT nonexistent FROM employees2;")
       result `shouldSatisfy` isLeft
+
     it "handles non-existent table" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT * FROM nonexistent;")
       result `shouldSatisfy` isLeft
+
     it "handles mixing of aggregate and non-aggregate columns" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT name, MAX(salary) FROM employees2;")
       result `shouldSatisfy` isLeft
+
     it "handles invalid data type in WHERE clause" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT * FROM employees2 WHERE name = 1;")
       result `shouldSatisfy` isLeft
+
     it "handles invalid data type in INSERT INTO" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "INSERT INTO employees2 (id, name, department, salary, active) VALUES ('ABC', 2, 'HR', '68000', TRUE);")
       result `shouldSatisfy` isLeft
+
     it "handles using aggregate function in WHERE clause" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "SELECT * FROM employees2 WHERE MAX(salary) = 70000;")
       result `shouldSatisfy` isLeft
+
     it "handles invalid data type in UPDATE" $ do
       mockDbRef <- newIORef mockDB
       result <- runTestInterpreter mockDbRef (executeSql "UPDATE employees2 SET salary = '72000' WHERE id = 1;")
+      result `shouldSatisfy` isLeft
+
+    it "handles ORDER BY on a single column ascending" $ do
+      mockDbRef <- newIORef mockDB
+      result <- runTestInterpreter mockDbRef (executeSql "SELECT * FROM employees2 ORDER BY salary;")
+      result `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "department" StringType, Column "salary" IntegerType, Column "active" BoolType ] [[IntegerValue 2, StringValue "Bob", StringValue "Marketing", IntegerValue 60000, BoolValue False], [IntegerValue 3, StringValue "Charlie", StringValue "Sales", IntegerValue 65000, BoolValue True], [IntegerValue 1, StringValue "Alice", StringValue "Engineering", IntegerValue 70000, BoolValue True]])
+
+    it "handles ORDER BY on multiple columns with different directions" $ do
+      mockDbRef <- newIORef mockDB
+      result <- runTestInterpreter mockDbRef (executeSql "SELECT id, department, salary FROM employees2 ORDER BY department DESC, salary ASC;")
+      result `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "department" StringType, Column "salary" IntegerType] [[IntegerValue 3, StringValue "Sales", IntegerValue 65000], [IntegerValue 2, StringValue "Marketing", IntegerValue 60000], [IntegerValue 1, StringValue "Engineering", IntegerValue 70000]])
+
+    it "handles DROP TABLE for an existing table" $ do
+      mockDbRef <- newIORef mockDB
+      _ <- runTestInterpreter mockDbRef (executeSql "DROP TABLE employees2;")
+      result <- runTestInterpreter mockDbRef (executeSql "SELECT * FROM employees2;")
+      result `shouldSatisfy` isLeft
+          
+    it "handles DROP TABLE for a non-existent table" $ do
+      mockDbRef <- newIORef mockDB
+      result <- runTestInterpreter mockDbRef (executeSql "DROP TABLE non_existent;")
+      result `shouldSatisfy` isLeft
+
+    
+    it "handles CREATE TABLE with a valid definition" $ do
+      mockDbRef <- newIORef mockDB
+      result <- runTestInterpreter mockDbRef (executeSql "CREATE TABLE new_table (id INTEGER, name STRING, active BOOL);")
+      result `shouldBe` Right (DataFrame [Column "id" IntegerType,Column "name" StringType,Column "active" BoolType] []) 
+      verifyResult <- runTestInterpreter mockDbRef (executeSql "SHOW TABLE new_table;")
+      verifyResult `shouldSatisfy` isRight
+
+
+    it "handles CREATE TABLE with an invalid column type" $ do
+      mockDbRef <- newIORef mockDB
+      result <- runTestInterpreter mockDbRef (executeSql "CREATE TABLE invalid_table (id WRONGTYPE);")
+      result `shouldSatisfy` isLeft
+
+
+    it "handles CREATE TABLE with a duplicate table name" $ do
+      mockDbRef <- newIORef mockDB
+      _ <- runTestInterpreter mockDbRef (executeSql "CREATE TABLE duplicate_table (id INTEGER);")
+      result <- runTestInterpreter mockDbRef (executeSql "CREATE TABLE duplicate_table (id INTEGER);")
       result `shouldSatisfy` isLeft

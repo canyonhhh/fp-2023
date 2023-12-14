@@ -39,6 +39,26 @@ type Row = [DataFrame.Value]
 data DataFrame = DataFrame [Column] [Row]
   deriving (Show, Eq, Generic)
 
+instance A.ToJSON DataFrame where
+    toJSON (DataFrame columns rows) =
+        A.object [K.fromString "columns" A..= map columnToJSON columns,
+                  K.fromString "rows" A..= map (rowToJSON columns) rows]
+      where
+        columnToJSON (Column name ctype) =
+            A.object [K.fromString "name" A..= name, K.fromString "type" A..= show ctype]
+
+        rowToJSON :: [Column] -> Row -> A.Value
+        rowToJSON cols rowVals =
+            A.object $ zipWith (\(Column name _) val -> K.fromString name A..= valueToJSON val) cols rowVals
+
+        valueToJSON :: DataFrame.Value -> A.Value
+        valueToJSON v = case v of
+            IntegerValue i -> A.toJSON i
+            StringValue s  -> A.toJSON s
+            BoolValue b    -> A.toJSON b
+            TimeValue t    -> A.toJSON t
+            NullValue      -> AT.Null
+
 instance A.FromJSON DataFrame where
     parseJSON = A.withObject "DataFrame" $ \v -> do
         columns <- v A..: K.fromString "columns" >>= mapM parseColumn
