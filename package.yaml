@@ -98,7 +98,7 @@ executables:
     - terminal-size
     - free
     - time
-  fp2023-server:
+  fp2023-sql-server:
     main:                Server.hs
     source-dirs:         app4/server
     ghc-options:
@@ -113,7 +113,7 @@ executables:
     - free
     - time
     - scotty
-  fp2023-client:
+  fp2023-sql-client:
     main:                Client.hs
     source-dirs:         app4/client
     ghc-options:

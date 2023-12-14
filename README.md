@@ -51,6 +51,6 @@ Add more and run tests: `stack test`
 
 # Task 4
 
-Run server: `stack run fp2023-server`
+Run server: `stack run fp2023-sql-server`
 
-Run client: `stack run fp2023-client`
+Run client: `stack run fp2023-sql-client`

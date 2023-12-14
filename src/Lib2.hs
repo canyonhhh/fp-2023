@@ -123,7 +123,6 @@ instance A.ToJSON ParsedStatement
 
 newtype Parser a = Parser { runParser :: ExceptT String (State String) a }
 
-
 instance MonadError String Parser where
     throwError = Parser . throwError
     catchError (Parser p) handler = Parser $ catchError p (runParser . handler)
@@ -147,8 +146,8 @@ instance Alternative Parser where
     (Parser p1) <|> (Parser p2) = Parser $ ExceptT $ StateT $ \s -> do
         let res = runStateT (runExceptT p1) s
         case runIdentity res of
-            (Left _, _) -> runStateT (runExceptT p2) s  -- Run p2 with original state
-            (Right val, s') -> return (Right val, s')  -- Return result if p1 succeeds
+            (Left _, _) -> runStateT (runExceptT p2) s
+            (Right val, s') -> return (Right val, s')
 
 parserFail :: String -> Parser a
 parserFail msg = throwError msg
