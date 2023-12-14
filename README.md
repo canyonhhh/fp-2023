@@ -48,3 +48,9 @@ Please edit [Lib3](src/Lib3.hs) and [Main](app3/Main.hs) modules. You can add li
 Run your application: `stack run fp2023-manipulate`
 
 Add more and run tests: `stack test`
+
+# Task 4
+
+Run server: `stack run fp2023-server`
+
+Run client: `stack run fp2023-client`
